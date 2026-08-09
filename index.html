@@ -139,6 +139,7 @@
   .toast.show{opacity:1}
   @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 </style>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
 <body>
 <header class="app">
@@ -158,6 +159,7 @@
       <button data-seg="timetable" class="active">Timetable</button>
       <button data-seg="students">Students</button>
       <button data-seg="restrictions">Restrictions</button>
+      <button data-seg="sync">Sync</button>
     </div>
     <div class="panelbody" id="setupBody"></div>
   </section>
@@ -220,13 +222,14 @@ function parseCell(k){const [day,periodId]=k.split("|");return {day,periodId}}
 
 function load(){try{const r=localStorage.getItem(LS_KEY);return r?JSON.parse(r):null}catch(e){return null}}
 let saveTimer=null;
-function save(){
+function save(push=true){
   clearTimeout(saveTimer);
   document.getElementById("savestate").textContent="saving…";
   saveTimer=setTimeout(()=>{
     localStorage.setItem(LS_KEY,JSON.stringify(S));
     document.getElementById("savestate").textContent="saved locally";
   },250);
+  if(push)schedulePush();
 }
 function toast(msg){const t=document.getElementById("toast");t.textContent=msg;t.classList.add("show");setTimeout(()=>t.classList.remove("show"),1600)}
 
@@ -259,7 +262,8 @@ function renderSetup(){
   const el=document.getElementById("setupBody");
   if(seg==="timetable") el.innerHTML="", el.append(renderTimetableSetup());
   else if(seg==="students") el.innerHTML="", el.append(renderStudentsSetup());
-  else el.innerHTML="", el.append(renderRestrictionsSetup());
+  else if(seg==="restrictions") el.innerHTML="", el.append(renderRestrictionsSetup());
+  else el.innerHTML="", el.append(renderSyncSetup());
 }
 
 /* --- timetable setup --- */
@@ -740,10 +744,156 @@ document.getElementById("btnReset").onclick=()=>{
   if(confirm("Reset everything? This clears local data.")){S=blankState();save();renderAll()}
 };
 
+/* ---------------- SUPABASE SYNC ---------------- */
+const SYNC_KEY="lesson_timetabler_sync_cfg";
+let sb=null, sbUser=null, lastSynced=null, pushTimer=null;
+function syncCfg(){try{return JSON.parse(localStorage.getItem(SYNC_KEY))||{}}catch(e){return {}}}
+function saveSyncCfg(c){localStorage.setItem(SYNC_KEY,JSON.stringify(c))}
+function updateSyncStatus(){if(seg==="sync")renderSetup()}
+
+function initSupabase(){
+  const c=syncCfg();
+  if(c.url&&c.key&&window.supabase){
+    sb=window.supabase.createClient(c.url,c.key);
+    sb.auth.getSession().then(({data})=>{
+      if(data&&data.session){sbUser=data.session.user;updateSyncStatus()}
+    });
+    sb.auth.onAuthStateChange((_e,session)=>{sbUser=session?session.user:null;updateSyncStatus()});
+  }
+}
+
+async function signUp(email,pw){
+  if(!email||!pw){toast("Enter email and password.");return}
+  const {error}=await sb.auth.signUp({email,password:pw});
+  if(error){toast(error.message);return}
+  toast("Account created. If email confirmation is on, confirm first, then Sign in.");
+}
+async function signIn(email,pw){
+  if(!email||!pw){toast("Enter email and password.");return}
+  const {data,error}=await sb.auth.signInWithPassword({email,password:pw});
+  if(error){toast(error.message);return}
+  sbUser=data.user;updateSyncStatus();await firstSync();
+}
+async function signOut(){await sb.auth.signOut();sbUser=null;updateSyncStatus()}
+
+async function firstSync(){
+  const {data,error}=await sb.from('app_state').select('data').eq('user_id',sbUser.id).maybeSingle();
+  if(error){toast("Sync error: "+error.message);return}
+  const localHas=S.students.length||S.placements.length;
+  const cloud=data&&data.data;
+  const cloudHas=cloud&&((cloud.students&&cloud.students.length)||(cloud.placements&&cloud.placements.length));
+  if(cloudHas&&localHas){chooseSyncDirection(cloud);}
+  else if(cloudHas){S=cloud;save(false);renderAll();lastSynced=new Date();updateSyncStatus();toast("Loaded from cloud.");}
+  else{await pushNow();toast("Saved to cloud.");}
+}
+function chooseSyncDirection(cloudData){
+  if(!dlg){dlg=document.createElement("dialog");document.body.append(dlg)}
+  dlg.innerHTML=`<div class="dlgbody"><h3>Two copies found</h3>
+    <p class="muted" style="margin:0 0 14px">This device and the cloud both have data. Keep one — the other is replaced.</p>
+    <div class="row" style="justify-content:flex-end;gap:8px">
+      <button id="useCloud">Use cloud</button>
+      <button id="useLocal" class="primary">Keep this device</button>
+    </div></div>`;
+  dlg.querySelector("#useCloud").onclick=()=>{S=cloudData;save(false);renderAll();lastSynced=new Date();updateSyncStatus();dlg.close();toast("Loaded from cloud.")};
+  dlg.querySelector("#useLocal").onclick=async()=>{dlg.close();await pushNow();toast("Saved to cloud.")};
+  dlg.showModal();
+}
+
+async function pushNow(){
+  if(!sb||!sbUser)return;
+  const {error}=await sb.from('app_state').upsert({user_id:sbUser.id,data:S,updated_at:new Date().toISOString()},{onConflict:'user_id'});
+  if(error){toast("Push failed: "+error.message);return}
+  lastSynced=new Date();updateSyncStatus();
+}
+async function pullNow(silent){
+  if(!sb||!sbUser){if(!silent)toast("Sign in first.");return}
+  const {data,error}=await sb.from('app_state').select('data').eq('user_id',sbUser.id).maybeSingle();
+  if(error){if(!silent)toast(error.message);return}
+  if(data&&data.data){S=data.data;save(false);renderAll();lastSynced=new Date();updateSyncStatus();if(!silent)toast("Pulled from cloud.")}
+  else if(!silent)toast("Nothing in the cloud yet.");
+}
+function schedulePush(){
+  if(!sb||!sbUser)return;
+  clearTimeout(pushTimer);
+  pushTimer=setTimeout(pushNow,1200);
+}
+
+function renderSyncSetup(){
+  const wrap=document.createElement("div");
+  const cfg=syncCfg();
+
+  if(!window.supabase){
+    const c=document.createElement("div");c.className="card";
+    c.innerHTML=`<h3>Cloud sync</h3><div class="muted">The sync library didn't load — you may be offline. Everything still works and saves on this device; sync needs an internet connection.</div>`;
+    wrap.append(c);return wrap;
+  }
+
+  // 1 · connect
+  const c1=document.createElement("div");c1.className="card";
+  c1.innerHTML=`<h3>1 · Connect your project</h3>
+    <div class="muted" style="margin-bottom:10px">In Supabase, open your project → <b>Settings → API Keys</b>. Copy the <b>Project URL</b> and the <b>publishable key</b> (begins with <code>sb_publishable_</code>). Paste both here — they're safe to store.</div>`;
+  const url=mkInput("Project URL — https://xxxx.supabase.co");url.el.value=cfg.url||"";
+  const key=mkInput("Publishable key — sb_publishable_…");key.el.value=cfg.key||"";
+  const saveBtn=document.createElement("button");saveBtn.className="primary";saveBtn.textContent="Save connection";saveBtn.style.marginTop="8px";
+  saveBtn.onclick=()=>{
+    const u=url.el.value.trim(),k=key.el.value.trim();
+    if(!u||!k){toast("Enter both values.");return}
+    saveSyncCfg({url:u,key:k});sb=window.supabase.createClient(u,k);toast("Connected.");renderSetup();
+  };
+  c1.append(url.wrap,key.wrap,saveBtn);
+  if(cfg.url&&cfg.key){const p=document.createElement("span");p.className="pill";p.style.marginLeft="8px";p.style.background="var(--ok-soft)";p.style.color="var(--ok)";p.textContent="saved";saveBtn.after(p)}
+  wrap.append(c1);
+
+  // 2 · table SQL
+  const c2=document.createElement("div");c2.className="card";
+  c2.innerHTML=`<h3>2 · Create the storage table (once)</h3>
+    <div class="muted" style="margin-bottom:8px">In Supabase, open <b>SQL Editor → New query</b>, paste this, click <b>Run</b>. You only do this one time.</div>`;
+  const sql=`create table if not exists public.app_state (
+  user_id uuid primary key references auth.users(id) on delete cascade,
+  data jsonb not null default '{}',
+  updated_at timestamptz not null default now()
+);
+alter table public.app_state enable row level security;
+create policy "select own" on public.app_state for select using (auth.uid() = user_id);
+create policy "insert own" on public.app_state for insert with check (auth.uid() = user_id);
+create policy "update own" on public.app_state for update using (auth.uid() = user_id) with check (auth.uid() = user_id);`;
+  const pre=document.createElement("textarea");pre.value=sql;pre.readOnly=true;pre.style.minHeight="160px";
+  const copy=document.createElement("button");copy.textContent="Copy SQL";copy.style.marginTop="8px";
+  copy.onclick=()=>{navigator.clipboard.writeText(sql).then(()=>toast("Copied.")).catch(()=>toast("Select the text and copy manually."))};
+  c2.append(pre,copy);wrap.append(c2);
+
+  // 3 · account
+  const c3=document.createElement("div");c3.className="card";
+  c3.innerHTML=`<h3>3 · Sign in</h3>`;
+  if(!sb){c3.append(Object.assign(document.createElement("div"),{className:"muted",textContent:"Save your connection above first."}));wrap.append(c3);return wrap}
+  if(!sbUser){
+    c3.insertAdjacentHTML("beforeend",`<div class="muted" style="margin-bottom:8px">First time only: enter an email + password, click <b>Create account</b>. After that, use <b>Sign in</b>.</div>`);
+    const em=mkInput("Email");em.el.type="email";
+    const pw=mkInput("Password");pw.el.type="password";
+    const row=document.createElement("div");row.className="row";row.style.marginTop="8px";
+    const inB=document.createElement("button");inB.className="primary";inB.textContent="Sign in";inB.onclick=()=>signIn(em.el.value.trim(),pw.el.value);
+    const upB=document.createElement("button");upB.textContent="Create account";upB.onclick=()=>signUp(em.el.value.trim(),pw.el.value);
+    row.append(inB,upB);c3.append(em.wrap,pw.wrap,row);
+  }else{
+    c3.insertAdjacentHTML("beforeend",`<div class="row" style="margin-bottom:10px"><span class="pill" style="background:var(--ok-soft);color:var(--ok)">signed in</span><span>${esc(sbUser.email||"")}</span></div>`);
+    const row=document.createElement("div");row.className="row";
+    const push=document.createElement("button");push.textContent="Push to cloud";push.onclick=()=>pushNow().then(()=>toast("Pushed."));
+    const pull=document.createElement("button");pull.textContent="Pull from cloud";pull.onclick=()=>pullNow(false);
+    const out=document.createElement("button");out.className="ghost";out.textContent="Sign out";out.onclick=signOut;
+    row.append(push,pull,out);c3.append(row);
+    const ls=document.createElement("div");ls.className="muted";ls.style.marginTop="8px";ls.style.fontSize="12px";
+    ls.textContent=lastSynced?("Last synced "+lastSynced.toLocaleTimeString()+" · auto-syncs after each change"):"Auto-syncs after each change.";
+    c3.append(ls);
+  }
+  wrap.append(c3);
+  return wrap;
+}
+
 /* ---------------- boot ---------------- */
 function renderAll(){renderWeekSelect();renderSetup();renderRight()}
 function esc(s){return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
 renderAll();
+initSupabase();
 </script>
 </body>
 </html>
