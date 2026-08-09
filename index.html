@@ -243,8 +243,12 @@ function setSync(state,e){
   else p.textContent="—";
 }
 
-/* cloud-only save: schedule a debounced push; never writes app data to disk */
-function save(push=true){ if(push && !applyingRemote) scheduleCloudPush() }
+/* local-first save: cache on device instantly (never lost) + debounced cloud push */
+const LOCAL_PREFIX="lt_state_";
+function localKey(){return sbUser?LOCAL_PREFIX+sbUser.id:null}
+function writeLocal(ts){const k=localKey();if(!k)return;try{localStorage.setItem(k,JSON.stringify({data:S,updatedAt:ts||new Date().toISOString()}))}catch(e){}}
+function readLocal(){const k=localKey();if(!k)return null;try{const r=localStorage.getItem(k);return r?JSON.parse(r):null}catch(e){return null}}
+function save(push=true){ if(applyingRemote)return; writeLocal(); if(push)scheduleCloudPush() }
 function scheduleCloudPush(){
   if(!sb||!sbUser)return;
   if(!navigator.onLine){setSync("offline");return}
@@ -261,18 +265,33 @@ async function cloudPush(){
     lastSynced=new Date(); setSync("synced");
   }catch(e){ setSync("error",e) }
 }
-async function loadFromCloud(){
+async function loadAndReconcile(){
   applyingRemote=true;
   try{
-    const {data,error}=await sb.from("app_state").select("data").eq("user_id",sbUser.id).maybeSingle();
-    if(error){ applyingRemote=false; if(isMissingTable(error)){showTableError();return false} setSync("error",error); toast("Couldn't load: "+error.message); return false }
-    if(data&&data.data&&Object.keys(data.data).length){ S=migrate(data.data) }
-    else { S=blankState(); }
-    applyingRemote=false;
-    if(!data){ await cloudPush() }        // create the row on first login
-    lastSynced=new Date(); setSync("synced");
+    const local=readLocal();
+    let cloud=null, cloudErr=null;
+    try{
+      const {data,error}=await sb.from("app_state").select("data,updated_at").eq("user_id",sbUser.id).maybeSingle();
+      if(error){ if(isMissingTable(error)){showTableError();return false} cloudErr=error; }
+      else if(data){ cloud={data:data.data,updatedAt:data.updated_at}; }
+    }catch(e){ cloudErr=e; }
+
+    const lHas=local&&local.data&&Object.keys(local.data).length;
+    const cHas=cloud&&cloud.data&&Object.keys(cloud.data).length;
+
+    if(cloudErr){
+      if(lHas){ S=migrate(local.data); setSync(navigator.onLine?"error":"offline"); toast("Using this device's copy — will sync when back online."); return true; }
+      return false;   // no local fallback → don't risk overwriting cloud; show retry
+    }
+    if(!cHas&&!lHas){ S=blankState(); await cloudPush(); writeLocal(); return true; }
+    if(cHas&&!lHas){ S=migrate(cloud.data); writeLocal(cloud.updatedAt); lastSynced=new Date(); setSync("synced"); return true; }
+    if(!cHas&&lHas){ S=migrate(local.data); await cloudPush(); return true; }
+    const cT=Date.parse(cloud.updatedAt)||0, lT=Date.parse(local.updatedAt)||0;
+    if(cT>=lT){ S=migrate(cloud.data); writeLocal(cloud.updatedAt); lastSynced=new Date(); setSync("synced"); }
+    else { S=migrate(local.data); await cloudPush(); toast("Synced this device's newer changes."); }
     return true;
-  }catch(e){ applyingRemote=false; setSync("error",e); return false }
+  }catch(e){ setSync("error"); return false; }
+  finally{ applyingRemote=false; }
 }
 document.addEventListener("visibilitychange",()=>{ if(document.visibilityState==="hidden"){clearTimeout(pushTimer);cloudPush()} });
 window.addEventListener("beforeunload",()=>{ if(sb&&sbUser){clearTimeout(pushTimer);cloudPush()} });
@@ -297,12 +316,25 @@ function boot(){
 }
 async function enterApp(){
   document.getElementById("whoami").textContent=sbUser.email||"";
-  const ok=await loadFromCloud();
-  if(ok===false && document.getElementById("gate").dataset.mode==="table") return; // stay on table-setup screen
+  const ok=await loadFromCloudReconcile();
+  if(ok===false){
+    if(document.getElementById("gate").dataset.mode==="table") return;
+    showRetry(); return;
+  }
   document.getElementById("gate").style.display="none";
   document.getElementById("appHeader").style.display="flex";
   document.getElementById("appMain").style.display="grid";
   renderAll();
+}
+const loadFromCloudReconcile=loadAndReconcile;
+function showRetry(){
+  const g=document.getElementById("gate");g.style.display="flex";g.dataset.mode="retry";
+  document.getElementById("appHeader").style.display="none";document.getElementById("appMain").style.display="none";
+  g.querySelector(".gatecard").innerHTML=`
+    <div class="brand"><b>Lesson Timetabler</b></div>
+    <div class="sub">Couldn't reach the cloud, and there's no copy saved on this device yet. Check your connection and try again — nothing has been changed.</div>
+    <div class="actions"><button id="rt_go" class="primary">Try again</button></div>`;
+  g.querySelector("#rt_go").onclick=()=>{g.dataset.mode="";enterApp()};
 }
 
 function gateMessage(msg){
@@ -349,7 +381,7 @@ function showConnectScreen(){
     <div class="fld"><label>Publishable key</label><input id="cn_key" placeholder="sb_publishable_…"></div>
     <div class="err" id="cn_err"></div>
     <div class="actions"><button id="cn_go" class="primary">Connect</button></div>
-    <div class="foot">These are connection settings, not your schedule. Your schedule data is never stored on this device.</div>`;
+    <div class="foot">These are connection settings for your project, not your schedule.</div>`;
   g.querySelector("#cn_go").onclick=()=>{
     const u=g.querySelector("#cn_url").value.trim(), k=g.querySelector("#cn_key").value.trim();
     if(!u||!k){g.querySelector("#cn_err").textContent="Enter both values.";return}
