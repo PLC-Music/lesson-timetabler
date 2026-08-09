@@ -1,0 +1,749 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lesson Timetabler</title>
+<style>
+  :root{
+    --bg:#f5f6f8; --panel:#ffffff; --ink:#161a22; --muted:#6b7280; --line:#e4e7ec;
+    --primary:#3f4ea3; --primary-soft:#e8ebf7; --rotate:#b45309; --rotate-soft:#fdf1e3;
+    --ok:#0f8a5f; --ok-soft:#e4f4ee; --block:#eceef1; --block-ink:#aab0ba;
+    --danger:#b4232a; --focus:#3f4ea3;
+    --r:8px; --shadow:0 1px 2px rgba(20,25,35,.06),0 4px 14px rgba(20,25,35,.05);
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{
+    font:14px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    color:var(--ink);background:var(--bg);
+  }
+  h1,h2,h3{margin:0;font-weight:600;letter-spacing:-.01em}
+  button{font:inherit;color:inherit;cursor:pointer;border:1px solid var(--line);background:#fff;border-radius:6px;padding:6px 10px}
+  button:hover{border-color:#c9cdd6}
+  button:focus-visible,[tabindex]:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--focus);outline-offset:1px}
+  button.primary{background:var(--primary);border-color:var(--primary);color:#fff}
+  button.primary:hover{background:#354288}
+  button.ghost{background:transparent;border-color:transparent}
+  button.danger{color:var(--danger);border-color:#e8c9cb}
+  button.danger:hover{border-color:#d99ea1}
+  input,select{font:inherit;padding:6px 8px;border:1px solid var(--line);border-radius:6px;background:#fff;color:inherit}
+  label{font-size:12px;color:var(--muted)}
+  .row{display:flex;gap:8px;align-items:center}
+  .col{display:flex;flex-direction:column;gap:8px}
+  .muted{color:var(--muted)}
+  .pill{display:inline-flex;align-items:center;gap:5px;font-size:11px;padding:2px 7px;border-radius:999px;background:var(--block);color:var(--muted)}
+
+  header.app{
+    display:flex;align-items:center;justify-content:space-between;
+    padding:10px 16px;background:var(--panel);border-bottom:1px solid var(--line);
+  }
+  header.app .brand{display:flex;align-items:baseline;gap:10px}
+  header.app .brand b{font-size:16px;font-weight:650;letter-spacing:-.02em}
+  header.app .brand span{font-size:12px;color:var(--muted)}
+  header.app .tools{display:flex;gap:8px;align-items:center}
+
+  main{display:grid;grid-template-columns:minmax(340px,400px) 1fr;gap:0;height:calc(100vh - 53px)}
+  .left{border-right:1px solid var(--line);background:var(--panel);display:flex;flex-direction:column;min-height:0}
+  .right{display:flex;flex-direction:column;min-height:0;background:var(--bg)}
+
+  .segbar{display:flex;padding:10px 12px 0;gap:4px}
+  .segbar button{border:none;background:transparent;padding:7px 10px;border-radius:6px;color:var(--muted);font-weight:550}
+  .segbar button.active{background:var(--primary-soft);color:var(--primary)}
+  .panelbody{padding:12px;overflow:auto;flex:1;min-height:0}
+
+  .card{border:1px solid var(--line);border-radius:var(--r);padding:12px;margin-bottom:12px;background:#fff}
+  .card > h3{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:10px;font-weight:650}
+
+  /* students list */
+  .stud{display:flex;align-items:center;gap:8px;padding:7px 8px;border:1px solid var(--line);border-radius:6px;margin-bottom:6px;background:#fff}
+  .stud .dot{width:8px;height:8px;border-radius:2px;flex:none}
+  .stud .meta{flex:1;min-width:0}
+  .stud .meta .nm{font-weight:600}
+  .stud .meta .sub{font-size:12px;color:var(--muted)}
+  .stud button{padding:3px 7px;font-size:12px}
+
+  textarea{width:100%;min-height:80px;font:13px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;padding:8px;border:1px solid var(--line);border-radius:6px;resize:vertical}
+
+  /* period rows */
+  .prow{display:grid;grid-template-columns:1fr 84px 84px 28px;gap:6px;margin-bottom:6px;align-items:center}
+  .prow input{width:100%}
+
+  /* generic grid */
+  .gridwrap{overflow:auto;flex:1;min-height:0;padding:12px}
+  table.grid{border-collapse:separate;border-spacing:0;width:100%;background:#fff;border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
+  table.grid th,table.grid td{border-right:1px solid var(--line);border-bottom:1px solid var(--line);padding:0}
+  table.grid th:last-child,table.grid td:last-child{border-right:none}
+  table.grid thead th{background:#fafbfc;padding:9px 10px;font-size:12px;font-weight:600;text-align:center;position:sticky;top:0;z-index:2}
+  table.grid th.rowhead{text-align:left;background:#fafbfc;position:sticky;left:0;z-index:1;min-width:120px}
+  table.grid td.rowhead{text-align:left;background:#fafbfc;padding:8px 10px;position:sticky;left:0;z-index:1;min-width:120px}
+  table.grid td.rowhead .pn{font-weight:600}
+  table.grid td.rowhead .pt{font-size:11px;color:var(--muted)}
+
+  .cell{position:relative;min-height:56px;height:56px;vertical-align:top;padding:4px;transition:background .08s}
+  .cell.break{background:repeating-linear-gradient(45deg,#fafbfc,#fafbfc 8px,#f3f4f6 8px,#f3f4f6 16px)}
+  .cell.blocked{background:var(--block);color:var(--block-ink)}
+  .cell.blocked::after{content:"";position:absolute;inset:0;background:repeating-linear-gradient(135deg,transparent,transparent 6px,rgba(0,0,0,.03) 6px,rgba(0,0,0,.03) 7px);pointer-events:none}
+  .cell.drop-ok{outline:2px dashed var(--ok);outline-offset:-4px;background:var(--ok-soft)}
+  .cell.drop-no{background:var(--block);cursor:not-allowed}
+  .cell.arm-ok{outline:2px dashed var(--primary);outline-offset:-4px;cursor:pointer}
+  .cell.arm-ok:hover{background:var(--primary-soft)}
+
+  /* restriction editor cell states */
+  .cell.rx-year{background:#fbeaea}
+  .cell.rx-year .tag{color:#9a2b2b}
+  .cell.rx-inherit{background:#f4eeee;color:#b98a8a}
+  .cell.rx-student{background:#fde9d6}
+  .cell.rx-student .tag{color:#9a5312}
+  .cell.editable{cursor:pointer}
+  .cell.editable:hover{box-shadow:inset 0 0 0 2px var(--primary-soft)}
+  .cell .tag{font-size:10px;text-transform:uppercase;letter-spacing:.05em;font-weight:600}
+
+  /* placement chip in cell */
+  .lesson{border-radius:6px;padding:4px 6px;font-size:12px;line-height:1.25;background:var(--primary-soft);border:1px solid #cdd4ee;height:100%;display:flex;flex-direction:column;gap:2px;cursor:pointer}
+  .lesson.rotating{background:var(--rotate-soft);border-color:#f0d3ac}
+  .lesson .who{font-weight:600;display:flex;align-items:center;gap:4px}
+  .lesson .rot{font-size:11px;color:var(--rotate);font-weight:600}
+  .lesson .turn{display:flex;flex-direction:column;gap:1px;margin-top:1px}
+  .lesson .turn .t{font-size:11px;color:var(--muted);display:flex;gap:5px;align-items:center}
+  .lesson .turn .t.now{color:var(--rotate);font-weight:600}
+  .lesson .turn .t .idx{font-variant-numeric:tabular-nums}
+
+  /* roster rail */
+  .roster{border-top:1px solid var(--line);background:var(--panel);padding:10px 12px;max-height:34vh;overflow:auto}
+  .roster h3{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:8px;font-weight:650}
+  .rgroup{margin-bottom:10px}
+  .rgroup .gl{font-size:11px;color:var(--muted);margin-bottom:5px;font-weight:600}
+  .chips{display:flex;flex-wrap:wrap;gap:6px}
+  .chip{display:inline-flex;align-items:center;gap:6px;padding:5px 9px;border:1px solid var(--line);border-radius:999px;background:#fff;cursor:grab;user-select:none}
+  .chip:hover{border-color:#c2c8d4}
+  .chip .cdot{width:7px;height:7px;border-radius:2px;flex:none}
+  .chip.sel{border-color:var(--primary);background:var(--primary-soft);box-shadow:0 0 0 1px var(--primary) inset}
+  .chip.placed{opacity:.5}
+  .chip .dur{font-size:11px;color:var(--muted)}
+
+  .banner{display:flex;align-items:center;gap:10px;padding:8px 14px;background:var(--primary-soft);border-bottom:1px solid #cdd4ee;color:var(--primary);font-weight:550}
+  .banner.hide{display:none}
+  .banner button{background:#fff}
+
+  .toolbar{display:flex;align-items:center;gap:10px;padding:8px 12px;border-bottom:1px solid var(--line);background:var(--panel);flex-wrap:wrap}
+  .toolbar .grow{flex:1}
+  .conflict{color:var(--danger);font-weight:600;font-size:12px}
+  .empty{color:var(--muted);padding:24px;text-align:center;font-size:13px}
+  dialog{border:1px solid var(--line);border-radius:12px;padding:0;box-shadow:var(--shadow);max-width:340px;width:90%}
+  dialog::backdrop{background:rgba(20,25,35,.35)}
+  dialog .dlgbody{padding:16px}
+  dialog h3{margin-bottom:10px}
+  .stack{display:flex;flex-direction:column;gap:8px}
+  .toast{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);background:var(--ink);color:#fff;padding:8px 14px;border-radius:8px;font-size:13px;opacity:0;transition:opacity .2s;pointer-events:none;z-index:50}
+  .toast.show{opacity:1}
+  @media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<header class="app">
+  <div class="brand"><b>Lesson Timetabler</b><span id="savestate">saved locally</span></div>
+  <div class="tools">
+    <button id="btnExport">Export JSON</button>
+    <button id="btnImport">Import JSON</button>
+    <input id="fileImport" type="file" accept="application/json" hidden>
+    <button id="btnReset" class="ghost danger">Reset</button>
+  </div>
+</header>
+
+<main>
+  <!-- LEFT: setup -->
+  <section class="left">
+    <div class="segbar" id="segbar">
+      <button data-seg="timetable" class="active">Timetable</button>
+      <button data-seg="students">Students</button>
+      <button data-seg="restrictions">Restrictions</button>
+    </div>
+    <div class="panelbody" id="setupBody"></div>
+  </section>
+
+  <!-- RIGHT: scheduler -->
+  <section class="right">
+    <div class="toolbar">
+      <div class="row">
+        <label for="weekSel">Week</label>
+        <select id="weekSel"></select>
+      </div>
+      <div class="grow"></div>
+      <span id="conflictMsg" class="conflict"></span>
+      <button id="btnClearPlace" class="ghost">Clear all placements</button>
+    </div>
+    <div class="banner hide" id="combineBanner">
+      <span id="combineText"></span>
+      <button id="combineCancel">Cancel</button>
+    </div>
+    <div class="gridwrap" id="schedWrap"></div>
+    <div class="roster" id="roster"></div>
+  </section>
+</main>
+
+<div class="toast" id="toast"></div>
+
+<script>
+"use strict";
+
+/* ---------------- state ---------------- */
+const LS_KEY = "lesson_timetabler_v1";
+const YEAR_COLORS = ["#3f4ea3","#0f8a5f","#b45309","#8b2fb0","#0e7490","#a13d63","#556b2f","#9a3412"];
+
+function blankState(){
+  return {
+    termWeeks: 10,
+    days: ["Mon","Tue","Wed","Thu","Fri"],
+    periods: [
+      {id:pid(),name:"P1",start:"09:00",end:"09:45",brk:false},
+      {id:pid(),name:"P2",start:"09:45",end:"10:30",brk:false},
+      {id:pid(),name:"Recess",start:"10:30",end:"10:50",brk:true},
+      {id:pid(),name:"P3",start:"10:50",end:"11:35",brk:false},
+      {id:pid(),name:"P4",start:"11:35",end:"12:20",brk:false},
+      {id:pid(),name:"Lunch",start:"12:20",end:"13:00",brk:true},
+      {id:pid(),name:"P5",start:"13:00",end:"13:45",brk:false},
+      {id:pid(),name:"P6",start:"13:45",end:"14:30",brk:false}
+    ],
+    students: [],
+    yearRestrictions: {},     // year -> [cellKey]
+    studentRestrictions: {},  // studentId -> [cellKey]
+    placements: []            // {id, cellKey, studentIds:[], rotating}
+  };
+}
+let S = load() || blankState();
+
+function pid(){return "p"+Math.random().toString(36).slice(2,8)}
+function sid(){return "s"+Math.random().toString(36).slice(2,8)}
+function cellKey(day,periodId){return day+"|"+periodId}
+function parseCell(k){const [day,periodId]=k.split("|");return {day,periodId}}
+
+function load(){try{const r=localStorage.getItem(LS_KEY);return r?JSON.parse(r):null}catch(e){return null}}
+let saveTimer=null;
+function save(){
+  clearTimeout(saveTimer);
+  document.getElementById("savestate").textContent="saving…";
+  saveTimer=setTimeout(()=>{
+    localStorage.setItem(LS_KEY,JSON.stringify(S));
+    document.getElementById("savestate").textContent="saved locally";
+  },250);
+}
+function toast(msg){const t=document.getElementById("toast");t.textContent=msg;t.classList.add("show");setTimeout(()=>t.classList.remove("show"),1600)}
+
+/* ---------------- derived helpers ---------------- */
+function studentById(id){return S.students.find(s=>s.id===id)}
+function yearColor(year){
+  const years=[...new Set(S.students.map(s=>String(s.year)))].sort();
+  const i=years.indexOf(String(year));
+  return YEAR_COLORS[(i<0?0:i)%YEAR_COLORS.length];
+}
+function blockedCellsFor(studentId){
+  const st=studentById(studentId); if(!st) return new Set();
+  const set=new Set(S.yearRestrictions[String(st.year)]||[]);
+  (S.studentRestrictions[studentId]||[]).forEach(k=>set.add(k));
+  return set;
+}
+function placementAt(k){return S.placements.find(p=>p.cellKey===k)}
+function studentPlacements(id){return S.placements.filter(p=>p.studentIds.includes(id))}
+
+/* ---------------- SETUP: segmented panel ---------------- */
+let seg="timetable";
+document.getElementById("segbar").addEventListener("click",e=>{
+  const b=e.target.closest("button[data-seg]"); if(!b)return;
+  seg=b.dataset.seg;
+  document.querySelectorAll("#segbar button").forEach(x=>x.classList.toggle("active",x===b));
+  renderSetup();
+});
+
+function renderSetup(){
+  const el=document.getElementById("setupBody");
+  if(seg==="timetable") el.innerHTML="", el.append(renderTimetableSetup());
+  else if(seg==="students") el.innerHTML="", el.append(renderStudentsSetup());
+  else el.innerHTML="", el.append(renderRestrictionsSetup());
+}
+
+/* --- timetable setup --- */
+function renderTimetableSetup(){
+  const wrap=document.createElement("div");
+
+  const daysCard=document.createElement("div");daysCard.className="card";
+  daysCard.innerHTML=`<h3>Days</h3>`;
+  const dayRow=document.createElement("div");dayRow.className="chips";
+  ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"].forEach(d=>{
+    const on=S.days.includes(d);
+    const b=document.createElement("button");
+    b.textContent=d;b.className=on?"primary":"";
+    b.onclick=()=>{
+      if(on){S.days=S.days.filter(x=>x!==d);}
+      else{S.days=["Mon","Tue","Wed","Thu","Fri","Sat","Sun"].filter(x=>S.days.includes(x)||x===d);}
+      save();renderAll();
+    };
+    dayRow.append(b);
+  });
+  daysCard.append(dayRow);
+  wrap.append(daysCard);
+
+  const pCard=document.createElement("div");pCard.className="card";
+  pCard.innerHTML=`<h3>Periods</h3>`;
+  const head=document.createElement("div");head.className="prow";
+  head.innerHTML=`<label>Name</label><label>Start</label><label>End</label><span></span>`;
+  pCard.append(head);
+  S.periods.forEach((p,i)=>{
+    const r=document.createElement("div");r.className="prow";
+    const nm=document.createElement("input");nm.value=p.name;nm.oninput=()=>{p.name=nm.value;save();renderRight()};
+    const st=document.createElement("input");st.type="time";st.value=p.start;st.oninput=()=>{p.start=st.value;save();renderRight()};
+    const en=document.createElement("input");en.type="time";en.value=p.end;en.oninput=()=>{p.end=en.value;save();renderRight()};
+    const del=document.createElement("button");del.textContent="×";del.title="Remove period";
+    del.onclick=()=>{S.periods.splice(i,1);save();renderAll()};
+    r.append(nm,st,en,del);
+    // break toggle line
+    pCard.append(r);
+    const br=document.createElement("div");br.style.margin="-2px 0 8px 2px";
+    const lbl=document.createElement("label");lbl.style.display="flex";lbl.style.gap="6px";lbl.style.alignItems="center";
+    const cb=document.createElement("input");cb.type="checkbox";cb.checked=!!p.brk;cb.onchange=()=>{p.brk=cb.checked;save();renderAll()};
+    lbl.append(cb,document.createTextNode("Break (not a teachable slot)"));
+    br.append(lbl);pCard.append(br);
+  });
+  const add=document.createElement("button");add.textContent="+ Add period";
+  add.onclick=()=>{S.periods.push({id:pid(),name:"P"+(S.periods.length+1),start:"14:30",end:"15:15",brk:false});save();renderAll()};
+  pCard.append(add);
+  wrap.append(pCard);
+
+  const tCard=document.createElement("div");tCard.className="card";
+  tCard.innerHTML=`<h3>Term length</h3>`;
+  const tr=document.createElement("div");tr.className="row";
+  const ti=document.createElement("input");ti.type="number";ti.min="1";ti.max="52";ti.value=S.termWeeks;ti.style.width="70px";
+  ti.oninput=()=>{S.termWeeks=Math.max(1,parseInt(ti.value||"1"));save();renderWeekSelect()};
+  tr.append(ti,Object.assign(document.createElement("span"),{className:"muted",textContent:"weeks"}));
+  tCard.append(tr);wrap.append(tCard);
+
+  return wrap;
+}
+
+/* --- students setup --- */
+function renderStudentsSetup(){
+  const wrap=document.createElement("div");
+
+  const bulk=document.createElement("div");bulk.className="card";
+  bulk.innerHTML=`<h3>Bulk add</h3><div class="muted" style="margin-bottom:8px">One student per line: <code>Name, Instrument, Year, Duration(min)</code></div>`;
+  const ta=document.createElement("textarea");
+  ta.placeholder="Ava Chen, Violin, 7, 30\nNoah Patel, Trumpet, 9, 20";
+  bulk.append(ta);
+  const parseBtn=document.createElement("button");parseBtn.className="primary";parseBtn.textContent="Add these";parseBtn.style.marginTop="8px";
+  parseBtn.onclick=()=>{
+    let n=0;
+    ta.value.split("\n").map(l=>l.trim()).filter(Boolean).forEach(line=>{
+      const parts=line.split(",").map(x=>x.trim());
+      if(!parts[0])return;
+      S.students.push({id:sid(),name:parts[0],instrument:parts[1]||"",year:parts[2]||"",duration:parseInt(parts[3])||30});
+      n++;
+    });
+    ta.value="";save();renderAll();toast(n+" student"+(n===1?"":"s")+" added");
+  };
+  bulk.append(parseBtn);
+  wrap.append(bulk);
+
+  const one=document.createElement("div");one.className="card";
+  one.innerHTML=`<h3>Add one</h3>`;
+  const g=document.createElement("div");g.className="col";
+  const nm=mkInput("Name");const inst=mkInput("Instrument");
+  const yr=mkInput("Year");yr.el.style.width="80px";
+  const dur=mkInput("Duration (min)");dur.el.type="number";dur.el.value="30";dur.el.style.width="110px";
+  const r1=document.createElement("div");r1.className="row";r1.append(nm.wrap,inst.wrap);
+  const r2=document.createElement("div");r2.className="row";r2.append(yr.wrap,dur.wrap);
+  const addB=document.createElement("button");addB.className="primary";addB.textContent="Add student";
+  addB.onclick=()=>{
+    if(!nm.el.value.trim())return;
+    S.students.push({id:sid(),name:nm.el.value.trim(),instrument:inst.el.value.trim(),year:yr.el.value.trim(),duration:parseInt(dur.el.value)||30});
+    nm.el.value="";inst.el.value="";yr.el.value="";dur.el.value="30";
+    save();renderAll();
+  };
+  g.append(r1,r2,addB);one.append(g);wrap.append(one);
+
+  const list=document.createElement("div");list.className="card";
+  list.innerHTML=`<h3>Roster (${S.students.length})</h3>`;
+  if(!S.students.length){list.append(Object.assign(document.createElement("div"),{className:"muted",textContent:"No students yet."}));}
+  const byYear={};
+  S.students.forEach(s=>{(byYear[s.year||"—"]=byYear[s.year||"—"]||[]).push(s)});
+  Object.keys(byYear).sort().forEach(y=>{
+    const h=document.createElement("div");h.className="gl";h.style.margin="8px 0 6px";h.style.fontSize="11px";h.style.color="var(--muted)";h.textContent="Year "+y;
+    list.append(h);
+    byYear[y].forEach(s=>{
+      const row=document.createElement("div");row.className="stud";
+      const dot=document.createElement("span");dot.className="dot";dot.style.background=yearColor(s.year);
+      const meta=document.createElement("div");meta.className="meta";
+      meta.innerHTML=`<div class="nm">${esc(s.name)}</div><div class="sub">${esc(s.instrument||"—")} · ${s.duration}min</div>`;
+      const del=document.createElement("button");del.textContent="Remove";del.className="danger";
+      del.onclick=()=>{
+        S.students=S.students.filter(x=>x.id!==s.id);
+        delete S.studentRestrictions[s.id];
+        S.placements=S.placements.map(p=>({...p,studentIds:p.studentIds.filter(id=>id!==s.id)})).filter(p=>p.studentIds.length);
+        save();renderAll();
+      };
+      row.append(dot,meta,del);list.append(row);
+    });
+  });
+  wrap.append(list);
+  return wrap;
+}
+function mkInput(ph){const wrap=document.createElement("div");wrap.className="col";const el=document.createElement("input");el.placeholder=ph;wrap.append(el);return{wrap,el}}
+
+/* --- restrictions setup --- */
+let rxScope={type:"year",value:null}; // or {type:"student",value:id}
+function renderRestrictionsSetup(){
+  const wrap=document.createElement("div");
+  const c=document.createElement("div");c.className="card";
+  c.innerHTML=`<h3>Restriction scope</h3><div class="muted" style="margin-bottom:8px">Pick a year level to block a slot for everyone in it (assembly, sport), or a student to block a class only they must not miss. Then click cells in the grid below.</div>`;
+
+  const years=[...new Set(S.students.map(s=>String(s.year)).filter(Boolean))].sort();
+  const sc=document.createElement("div");sc.className="row";sc.style.flexWrap="wrap";
+  const typeSel=document.createElement("select");
+  typeSel.innerHTML=`<option value="year">Year level</option><option value="student">Individual student</option>`;
+  typeSel.value=rxScope.type;
+  const valSel=document.createElement("select");
+  function fillVal(){
+    valSel.innerHTML="";
+    if(typeSel.value==="year"){
+      if(!years.length){valSel.innerHTML=`<option value="">— add students first —</option>`;}
+      years.forEach(y=>valSel.append(new Option("Year "+y,y)));
+      rxScope={type:"year",value:rxScope.type==="year"&&rxScope.value?rxScope.value:(years[0]||null)};
+    }else{
+      if(!S.students.length){valSel.innerHTML=`<option value="">— add students first —</option>`;}
+      S.students.forEach(s=>valSel.append(new Option(s.name+" (Yr "+(s.year||"—")+")",s.id)));
+      rxScope={type:"student",value:S.students[0]?.id||null};
+    }
+    if(valSel.value) rxScope.value=valSel.value;
+  }
+  fillVal();
+  valSel.value=rxScope.value||"";
+  typeSel.onchange=()=>{fillVal();valSel.value=rxScope.value||"";renderRestrictionGrid(gridHost)};
+  valSel.onchange=()=>{rxScope.value=valSel.value;renderRestrictionGrid(gridHost)};
+  sc.append(typeSel,valSel);c.append(sc);
+
+  const legend=document.createElement("div");legend.style.marginTop="10px";legend.className="row";legend.style.flexWrap="wrap";
+  legend.innerHTML=`<span class="pill" style="background:#fbeaea;color:#9a2b2b">Year block</span>
+    <span class="pill" style="background:#f4eeee;color:#b98a8a">Inherited (year)</span>
+    <span class="pill" style="background:#fde9d6;color:#9a5312">Student block</span>`;
+  c.append(legend);
+  wrap.append(c);
+
+  const gridCard=document.createElement("div");gridCard.className="card";
+  gridCard.innerHTML=`<h3>Click to toggle</h3>`;
+  const gridHost=document.createElement("div");gridHost.style.overflow="auto";
+  gridCard.append(gridHost);wrap.append(gridCard);
+  renderRestrictionGrid(gridHost);
+  return wrap;
+}
+function renderRestrictionGrid(host){
+  host.innerHTML="";
+  if(!rxScope.value){host.innerHTML=`<div class="muted">Add students to define restrictions.</div>`;return}
+  const tbl=buildGridShell();
+  const tbody=tbl.querySelector("tbody");
+  const isYear=rxScope.type==="year";
+  const yearSet=isYear?new Set(S.yearRestrictions[rxScope.value]||[]):null;
+  let inheritSet=null, studSet=null;
+  if(!isYear){
+    const st=studentById(rxScope.value);
+    inheritSet=new Set(S.yearRestrictions[String(st.year)]||[]);
+    studSet=new Set(S.studentRestrictions[rxScope.value]||[]);
+  }
+  S.periods.forEach(p=>{
+    const tr=document.createElement("tr");
+    tr.append(rowHead(p));
+    S.days.forEach(day=>{
+      const td=document.createElement("td");td.className="cell";
+      const k=cellKey(day,p.id);
+      if(p.brk){td.classList.add("break");tr.append(td);return;}
+      td.classList.add("editable");
+      if(isYear){
+        if(yearSet.has(k)){td.classList.add("rx-year");td.innerHTML=`<span class="tag">block</span>`;}
+        td.onclick=()=>{toggleSet(S.yearRestrictions,rxScope.value,k);save();renderRestrictionGrid(host);renderRight()};
+      }else{
+        if(inheritSet.has(k)){td.classList.add("rx-inherit");td.innerHTML=`<span class="tag">year</span>`;}
+        else if(studSet.has(k)){td.classList.add("rx-student");td.innerHTML=`<span class="tag">block</span>`;}
+        td.onclick=()=>{
+          if(inheritSet.has(k)){toast("Set on the year level — change it there.");return;}
+          toggleSet(S.studentRestrictions,rxScope.value,k);save();renderRestrictionGrid(host);renderRight();
+        };
+      }
+      tr.append(td);
+    });
+    tbody.append(tr);
+  });
+  host.append(tbl);
+}
+function toggleSet(store,key,cell){
+  const arr=store[key]||(store[key]=[]);
+  const i=arr.indexOf(cell);
+  if(i<0)arr.push(cell);else arr.splice(i,1);
+}
+
+/* ---------------- shared grid shell ---------------- */
+function buildGridShell(){
+  const tbl=document.createElement("table");tbl.className="grid";
+  const thead=document.createElement("thead");const htr=document.createElement("tr");
+  const corner=document.createElement("th");corner.className="rowhead";corner.textContent="";htr.append(corner);
+  S.days.forEach(d=>{const th=document.createElement("th");th.textContent=d;htr.append(th)});
+  thead.append(htr);tbl.append(thead);
+  tbl.append(document.createElement("tbody"));
+  return tbl;
+}
+function rowHead(p){
+  const td=document.createElement("td");td.className="rowhead";
+  td.innerHTML=`<div class="pn">${esc(p.name)}</div><div class="pt">${p.start}–${p.end}</div>`;
+  return td;
+}
+
+/* ---------------- SCHEDULER ---------------- */
+let dragStudentId=null;
+let combineSel=new Set();   // selected student ids for a rotating slot
+let arming=false;           // waiting for a target cell to place combined group
+
+function renderRight(){renderSchedule();renderRoster();renderConflicts();updateCombineBanner()}
+
+function renderSchedule(){
+  const host=document.getElementById("schedWrap");host.innerHTML="";
+  if(!S.students.length){host.innerHTML=`<div class="empty">Add students on the left, then drag them onto the grid.</div>`;return}
+  const tbl=buildGridShell();const tbody=tbl.querySelector("tbody");
+  const week=parseInt(document.getElementById("weekSel").value||"1");
+
+  S.periods.forEach(p=>{
+    const tr=document.createElement("tr");tr.append(rowHead(p));
+    S.days.forEach(day=>{
+      const td=document.createElement("td");td.className="cell";
+      const k=cellKey(day,p.id);td.dataset.k=k;
+      if(p.brk){td.classList.add("break");tr.append(td);return}
+
+      const plc=placementAt(k);
+      if(plc){td.append(renderLesson(plc,week));}
+
+      // drag-target grey-out driven by dragStudentId or arming set
+      td.addEventListener("dragover",e=>{
+        if(!dragStudentId)return;
+        if(blockedCellsFor(dragStudentId).has(k)){e.dataTransfer.dropEffect="none";return}
+        e.preventDefault();e.dataTransfer.dropEffect="move";
+      });
+      td.addEventListener("drop",e=>{
+        e.preventDefault();if(!dragStudentId)return;
+        dropStudentOnCell(dragStudentId,k);
+      });
+      // arming (combine) click-to-place
+      td.addEventListener("click",()=>{
+        if(!arming)return;
+        placeCombinedOnCell(k);
+      });
+      tr.append(td);
+    });
+    tbody.append(tr);
+  });
+  host.append(tbl);
+  paintDragHints();
+}
+
+function renderLesson(plc,week){
+  const div=document.createElement("div");
+  const rotating=plc.studentIds.length>1;
+  div.className="lesson"+(rotating?" rotating":"");
+  const names=plc.studentIds.map(id=>studentById(id)).filter(Boolean);
+  if(!rotating){
+    const s=names[0];
+    div.innerHTML=`<div class="who"><span class="cdot" style="width:7px;height:7px;border-radius:2px;background:${yearColor(s.year)}"></span>${esc(s.name)}</div>
+      <div class="muted" style="font-size:11px">${esc(s.instrument||"")} · ${s.duration}min</div>`;
+  }else{
+    const turnIdx=(week-1)%names.length;
+    let turns=`<div class="turn">`;
+    names.forEach((s,i)=>{
+      turns+=`<div class="t ${i===turnIdx?"now":""}"><span class="idx">${i+1}.</span>${esc(s.name)}${i===turnIdx?" ← this week":""}</div>`;
+    });
+    turns+=`</div>`;
+    div.innerHTML=`<div class="who"><span class="rot">⟳ rotating ×${names.length}</span></div>${turns}`;
+  }
+  div.title="Click to edit this slot";
+  div.onclick=(e)=>{e.stopPropagation();openLessonDialog(plc)};
+  return div;
+}
+
+function dropStudentOnCell(studentId,k){
+  if(blockedCellsFor(studentId).has(k)){toast("Blocked for this student.");return}
+  const existing=placementAt(k);
+  if(existing){
+    if(existing.studentIds.includes(studentId)){toast("Already in this slot.");return}
+    // adding to an occupied cell -> becomes rotating; verify allowed for the newcomer only (already checked)
+    existing.studentIds.push(studentId);
+    existing.rotating=existing.studentIds.length>1;
+  }else{
+    S.placements.push({id:pid(),cellKey:k,studentIds:[studentId],rotating:false});
+  }
+  save();renderRight();
+}
+
+function placeCombinedOnCell(k){
+  const ids=[...combineSel];
+  // must be allowed for ALL selected
+  const bad=ids.filter(id=>blockedCellsFor(id).has(k));
+  if(bad.length){toast("Blocked for "+bad.map(id=>studentById(id)?.name).join(", "));return}
+  const existing=placementAt(k);
+  if(existing){
+    ids.forEach(id=>{if(!existing.studentIds.includes(id))existing.studentIds.push(id)});
+    existing.rotating=existing.studentIds.length>1;
+  }else{
+    S.placements.push({id:pid(),cellKey:k,studentIds:ids,rotating:ids.length>1});
+  }
+  arming=false;combineSel.clear();
+  save();renderRight();toast("Rotating slot placed.");
+}
+
+function paintDragHints(){
+  const cells=document.querySelectorAll("#schedWrap .cell");
+  cells.forEach(td=>{td.classList.remove("drop-ok","drop-no","arm-ok")});
+  if(dragStudentId){
+    const blocked=blockedCellsFor(dragStudentId);
+    cells.forEach(td=>{
+      const k=td.dataset.k;if(!k)return;
+      if(blocked.has(k))td.classList.add("drop-no");else td.classList.add("drop-ok");
+    });
+  }else if(arming){
+    const ids=[...combineSel];
+    cells.forEach(td=>{
+      const k=td.dataset.k;if(!k)return;
+      const ok=ids.every(id=>!blockedCellsFor(id).has(k));
+      td.classList.add(ok?"arm-ok":"drop-no");
+    });
+  }
+}
+
+/* roster rail with draggable + selectable chips */
+function renderRoster(){
+  const host=document.getElementById("roster");host.innerHTML="";
+  const h=document.createElement("div");h.className="row";
+  h.innerHTML=`<h3 style="flex:1">Students — drag to place · click to select for a rotating slot</h3>`;
+  const combineBtn=document.createElement("button");
+  combineBtn.textContent="Combine "+(combineSel.size||"")+" into rotating slot";
+  combineBtn.className="primary";combineBtn.disabled=combineSel.size<2;
+  combineBtn.onclick=()=>{arming=true;combineBtn.blur();renderRight();toast("Click an available cell.")};
+  h.append(combineBtn);
+  host.append(h);
+
+  if(!S.students.length){host.append(Object.assign(document.createElement("div"),{className:"muted",textContent:"No students yet."}));return}
+  const byYear={};
+  S.students.forEach(s=>{(byYear[s.year||"—"]=byYear[s.year||"—"]||[]).push(s)});
+  Object.keys(byYear).sort().forEach(y=>{
+    const g=document.createElement("div");g.className="rgroup";
+    g.innerHTML=`<div class="gl">Year ${y}</div>`;
+    const chips=document.createElement("div");chips.className="chips";
+    byYear[y].forEach(s=>{
+      const chip=document.createElement("div");chip.className="chip";
+      if(combineSel.has(s.id))chip.classList.add("sel");
+      if(studentPlacements(s.id).length)chip.classList.add("placed");
+      chip.draggable=true;
+      chip.innerHTML=`<span class="cdot" style="background:${yearColor(s.year)}"></span>${esc(s.name)} <span class="dur">${esc(s.instrument||"")}·${s.duration}m</span>`;
+      chip.addEventListener("dragstart",e=>{dragStudentId=s.id;e.dataTransfer.effectAllowed="move";e.dataTransfer.setData("text/plain",s.id);paintDragHints()});
+      chip.addEventListener("dragend",()=>{dragStudentId=null;paintDragHints()});
+      chip.addEventListener("click",()=>{
+        if(combineSel.has(s.id))combineSel.delete(s.id);else combineSel.add(s.id);
+        arming=false;renderRight();
+      });
+      chips.append(chip);
+    });
+    g.append(chips);host.append(g);
+  });
+}
+
+function updateCombineBanner(){
+  const banner=document.getElementById("combineBanner");
+  const txt=document.getElementById("combineText");
+  if(arming&&combineSel.size>=2){
+    banner.classList.remove("hide");
+    txt.textContent="Placing "+[...combineSel].map(id=>studentById(id)?.name).join(" · ")+" as a rotating slot — click an available cell.";
+  }else banner.classList.add("hide");
+}
+document.getElementById("combineCancel").onclick=()=>{arming=false;renderRight()};
+
+/* lesson edit dialog */
+let dlg;
+function openLessonDialog(plc){
+  if(!dlg){dlg=document.createElement("dialog");document.body.append(dlg)}
+  const {day,periodId}=parseCell(plc.cellKey);
+  const p=S.periods.find(x=>x.id===periodId);
+  const names=plc.studentIds.map(id=>studentById(id)).filter(Boolean);
+  dlg.innerHTML=`<div class="dlgbody">
+    <h3>${esc(day)} · ${esc(p?.name||"")} ${p?`<span class="muted" style="font-weight:400">${p.start}–${p.end}</span>`:""}</h3>
+    <div class="stack" id="dlgList"></div>
+    <div class="row" style="margin-top:14px;justify-content:flex-end">
+      <button id="dlgDelAll" class="danger">Remove slot</button>
+      <button id="dlgClose" class="primary">Done</button>
+    </div>
+  </div>`;
+  const list=dlg.querySelector("#dlgList");
+  names.forEach(s=>{
+    const r=document.createElement("div");r.className="row";
+    r.innerHTML=`<span class="cdot" style="width:8px;height:8px;border-radius:2px;background:${yearColor(s.year)}"></span>
+      <span style="flex:1">${esc(s.name)} <span class="muted">(${esc(s.instrument||"—")})</span></span>`;
+    const rm=document.createElement("button");rm.textContent="Remove";rm.className="danger";
+    rm.onclick=()=>{
+      plc.studentIds=plc.studentIds.filter(id=>id!==s.id);
+      if(!plc.studentIds.length)S.placements=S.placements.filter(x=>x.id!==plc.id);
+      else plc.rotating=plc.studentIds.length>1;
+      save();dlg.close();renderRight();
+    };
+    r.append(rm);list.append(r);
+  });
+  dlg.querySelector("#dlgDelAll").onclick=()=>{S.placements=S.placements.filter(x=>x.id!==plc.id);save();dlg.close();renderRight()};
+  dlg.querySelector("#dlgClose").onclick=()=>dlg.close();
+  dlg.showModal();
+}
+
+/* conflicts */
+function renderConflicts(){
+  const msgs=[];
+  // double-booked students
+  const seen={};
+  S.placements.forEach(p=>p.studentIds.forEach(id=>{seen[id]=(seen[id]||0)+1}));
+  const dbl=Object.entries(seen).filter(([,n])=>n>1).map(([id])=>studentById(id)?.name).filter(Boolean);
+  if(dbl.length)msgs.push(dbl.length+" double-booked: "+dbl.join(", "));
+  // blocked violations (shouldn't happen via UI, but guard)
+  let viol=0;
+  S.placements.forEach(p=>p.studentIds.forEach(id=>{if(blockedCellsFor(id).has(p.cellKey))viol++}));
+  if(viol)msgs.push(viol+" in blocked slots");
+  document.getElementById("conflictMsg").textContent=msgs.join(" · ");
+}
+
+/* week selector */
+function renderWeekSelect(){
+  const sel=document.getElementById("weekSel");const cur=sel.value||"1";
+  sel.innerHTML="";
+  for(let i=1;i<=S.termWeeks;i++)sel.append(new Option("Week "+i,i));
+  sel.value=Math.min(parseInt(cur),S.termWeeks);
+}
+document.getElementById("weekSel").addEventListener("change",renderSchedule);
+
+document.getElementById("btnClearPlace").onclick=()=>{
+  if(!S.placements.length)return;
+  if(confirm("Remove all placements from the grid?")){S.placements=[];save();renderRight()}
+};
+
+/* ---------------- top toolbar ---------------- */
+document.getElementById("btnExport").onclick=()=>{
+  const blob=new Blob([JSON.stringify(S,null,2)],{type:"application/json"});
+  const a=document.createElement("a");a.href=URL.createObjectURL(blob);
+  a.download="lesson-timetabler-"+new Date().toISOString().slice(0,10)+".json";a.click();
+  URL.revokeObjectURL(a.href);
+};
+document.getElementById("btnImport").onclick=()=>document.getElementById("fileImport").click();
+document.getElementById("fileImport").onchange=e=>{
+  const f=e.target.files[0];if(!f)return;
+  const r=new FileReader();
+  r.onload=()=>{try{S=JSON.parse(r.result);save();renderAll();toast("Imported.")}catch(x){toast("Invalid file.")}};
+  r.readAsText(f);e.target.value="";
+};
+document.getElementById("btnReset").onclick=()=>{
+  if(confirm("Reset everything? This clears local data.")){S=blankState();save();renderAll()}
+};
+
+/* ---------------- boot ---------------- */
+function renderAll(){renderWeekSelect();renderSetup();renderRight()}
+function esc(s){return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
+renderAll();
+</script>
+</body>
+</html>
