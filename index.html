@@ -4,46 +4,61 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Lesson Timetabler</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
   :root{
     --bg:#f5f6f8; --panel:#ffffff; --ink:#161a22; --muted:#6b7280; --line:#e4e7ec;
     --primary:#3f4ea3; --primary-soft:#e8ebf7; --rotate:#b45309; --rotate-soft:#fdf1e3;
     --ok:#0f8a5f; --ok-soft:#e4f4ee; --block:#eceef1; --block-ink:#aab0ba;
-    --danger:#b4232a; --focus:#3f4ea3;
-    --r:8px; --shadow:0 1px 2px rgba(20,25,35,.06),0 4px 14px rgba(20,25,35,.05);
+    --danger:#b4232a; --danger-soft:#f8e6e7; --focus:#3f4ea3;
+    --r:8px; --shadow:0 1px 2px rgba(20,25,35,.06),0 8px 30px rgba(20,25,35,.10);
   }
   *{box-sizing:border-box}
   html,body{margin:0;height:100%}
-  body{
-    font:14px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
-    color:var(--ink);background:var(--bg);
-  }
+  body{font:14px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;color:var(--ink);background:var(--bg)}
   h1,h2,h3{margin:0;font-weight:600;letter-spacing:-.01em}
   button{font:inherit;color:inherit;cursor:pointer;border:1px solid var(--line);background:#fff;border-radius:6px;padding:6px 10px}
   button:hover{border-color:#c9cdd6}
-  button:focus-visible,[tabindex]:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--focus);outline-offset:1px}
+  button:focus-visible,input:focus-visible,select:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--focus);outline-offset:1px}
   button.primary{background:var(--primary);border-color:var(--primary);color:#fff}
   button.primary:hover{background:#354288}
+  button.primary:disabled{opacity:.5;cursor:default}
   button.ghost{background:transparent;border-color:transparent}
-  button.danger{color:var(--danger);border-color:#e8c9cb}
+  button.danger{color:var(--danger);border-color:var(--danger-soft)}
   button.danger:hover{border-color:#d99ea1}
-  input,select{font:inherit;padding:6px 8px;border:1px solid var(--line);border-radius:6px;background:#fff;color:inherit}
+  input,select,textarea{font:inherit;padding:8px 9px;border:1px solid var(--line);border-radius:6px;background:#fff;color:inherit;width:100%}
+  textarea{font:13px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;min-height:90px;resize:vertical}
   label{font-size:12px;color:var(--muted)}
   .row{display:flex;gap:8px;align-items:center}
   .col{display:flex;flex-direction:column;gap:8px}
   .muted{color:var(--muted)}
-  .pill{display:inline-flex;align-items:center;gap:5px;font-size:11px;padding:2px 7px;border-radius:999px;background:var(--block);color:var(--muted)}
+  .pill{display:inline-flex;align-items:center;gap:5px;font-size:11px;padding:2px 8px;border-radius:999px;background:var(--block);color:var(--muted)}
+  code{font:12px ui-monospace,Menlo,monospace;background:#f0f1f4;padding:1px 4px;border-radius:4px}
 
-  header.app{
-    display:flex;align-items:center;justify-content:space-between;
-    padding:10px 16px;background:var(--panel);border-bottom:1px solid var(--line);
-  }
+  /* gate (login / connect) */
+  #gate{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:var(--bg);z-index:100;padding:20px}
+  .gatecard{width:100%;max-width:380px;background:var(--panel);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);padding:26px}
+  .gatecard .brand{display:flex;align-items:baseline;gap:8px;margin-bottom:4px}
+  .gatecard .brand b{font-size:20px;font-weight:650;letter-spacing:-.02em}
+  .gatecard .sub{color:var(--muted);margin-bottom:20px;font-size:13px}
+  .gatecard .fld{margin-bottom:12px}
+  .gatecard .fld label{display:block;margin-bottom:4px}
+  .gatecard .err{color:var(--danger);font-size:12px;margin-top:4px;min-height:16px}
+  .gatecard .actions{display:flex;gap:8px;margin-top:6px}
+  .gatecard .actions button{flex:1}
+  .gatecard .foot{margin-top:16px;font-size:12px;color:var(--muted);text-align:center}
+  .gatecard .foot a{color:var(--primary);cursor:pointer;text-decoration:underline}
+
+  header.app{display:none;align-items:center;justify-content:space-between;padding:10px 16px;background:var(--panel);border-bottom:1px solid var(--line)}
   header.app .brand{display:flex;align-items:baseline;gap:10px}
   header.app .brand b{font-size:16px;font-weight:650;letter-spacing:-.02em}
-  header.app .brand span{font-size:12px;color:var(--muted)}
   header.app .tools{display:flex;gap:8px;align-items:center}
+  .syncpill{font-size:12px;padding:3px 9px;border-radius:999px;background:var(--block);color:var(--muted)}
+  .syncpill.saving{background:var(--rotate-soft);color:var(--rotate)}
+  .syncpill.synced{background:var(--ok-soft);color:var(--ok)}
+  .syncpill.error{background:var(--danger-soft);color:var(--danger)}
 
-  main{display:grid;grid-template-columns:minmax(340px,400px) 1fr;gap:0;height:calc(100vh - 53px)}
+  main{display:none;grid-template-columns:minmax(340px,400px) 1fr;height:calc(100vh - 53px)}
   .left{border-right:1px solid var(--line);background:var(--panel);display:flex;flex-direction:column;min-height:0}
   .right{display:flex;flex-direction:column;min-height:0;background:var(--bg)}
 
@@ -55,132 +70,108 @@
   .card{border:1px solid var(--line);border-radius:var(--r);padding:12px;margin-bottom:12px;background:#fff}
   .card > h3{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:10px;font-weight:650}
 
-  /* students list */
-  .stud{display:flex;align-items:center;gap:8px;padding:7px 8px;border:1px solid var(--line);border-radius:6px;margin-bottom:6px;background:#fff}
-  .stud .dot{width:8px;height:8px;border-radius:2px;flex:none}
+  .studenthead{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+  .studenthead .ct{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:650}
+  .hint{font-size:12px;color:var(--muted);margin-bottom:10px}
+  .ygroup{margin-bottom:8px}
+  .ygroup .gl{font-size:11px;color:var(--muted);margin:8px 0 6px;font-weight:600}
+  .stud{display:flex;align-items:center;gap:9px;padding:8px 9px;border:1px solid var(--line);border-radius:7px;margin-bottom:6px;background:#fff;cursor:grab}
+  .stud:hover{border-color:#c2c8d4;background:#fcfcfd}
+  .stud.placed{opacity:.55}
+  .stud .grip{color:#c2c8d4;font-size:13px;line-height:1;letter-spacing:-2px}
+  .stud .dot{width:9px;height:9px;border-radius:2px;flex:none}
   .stud .meta{flex:1;min-width:0}
-  .stud .meta .nm{font-weight:600}
+  .stud .meta .nm{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .stud .meta .sub{font-size:12px;color:var(--muted)}
-  .stud button{padding:3px 7px;font-size:12px}
+  .stud .edit{color:var(--muted);font-size:12px;opacity:0}
+  .stud:hover .edit{opacity:1}
 
-  textarea{width:100%;min-height:80px;font:13px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;padding:8px;border:1px solid var(--line);border-radius:6px;resize:vertical}
-
-  /* period rows */
   .prow{display:grid;grid-template-columns:1fr 84px 84px 28px;gap:6px;margin-bottom:6px;align-items:center}
   .prow input{width:100%}
 
-  /* generic grid */
   .gridwrap{overflow:auto;flex:1;min-height:0;padding:12px}
   table.grid{border-collapse:separate;border-spacing:0;width:100%;background:#fff;border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
-  table.grid th,table.grid td{border-right:1px solid var(--line);border-bottom:1px solid var(--line);padding:0}
+  table.grid th,table.grid td{border-right:1px solid var(--line);border-bottom:1px solid var(--line)}
   table.grid th:last-child,table.grid td:last-child{border-right:none}
   table.grid thead th{background:#fafbfc;padding:9px 10px;font-size:12px;font-weight:600;text-align:center;position:sticky;top:0;z-index:2}
   table.grid th.rowhead{text-align:left;background:#fafbfc;position:sticky;left:0;z-index:1;min-width:120px}
   table.grid td.rowhead{text-align:left;background:#fafbfc;padding:8px 10px;position:sticky;left:0;z-index:1;min-width:120px}
   table.grid td.rowhead .pn{font-weight:600}
   table.grid td.rowhead .pt{font-size:11px;color:var(--muted)}
-
   .cell{position:relative;min-height:56px;height:56px;vertical-align:top;padding:4px;transition:background .08s}
   .cell.break{background:repeating-linear-gradient(45deg,#fafbfc,#fafbfc 8px,#f3f4f6 8px,#f3f4f6 16px)}
   .cell.blocked{background:var(--block);color:var(--block-ink)}
-  .cell.blocked::after{content:"";position:absolute;inset:0;background:repeating-linear-gradient(135deg,transparent,transparent 6px,rgba(0,0,0,.03) 6px,rgba(0,0,0,.03) 7px);pointer-events:none}
   .cell.drop-ok{outline:2px dashed var(--ok);outline-offset:-4px;background:var(--ok-soft)}
   .cell.drop-no{background:var(--block);cursor:not-allowed}
-  .cell.arm-ok{outline:2px dashed var(--primary);outline-offset:-4px;cursor:pointer}
-  .cell.arm-ok:hover{background:var(--primary-soft)}
-
-  /* restriction editor cell states */
-  .cell.rx-year{background:#fbeaea}
-  .cell.rx-year .tag{color:#9a2b2b}
+  .cell.rx-year{background:#fbeaea}.cell.rx-year .tag{color:#9a2b2b}
   .cell.rx-inherit{background:#f4eeee;color:#b98a8a}
-  .cell.rx-student{background:#fde9d6}
-  .cell.rx-student .tag{color:#9a5312}
+  .cell.rx-student{background:#fde9d6}.cell.rx-student .tag{color:#9a5312}
   .cell.editable{cursor:pointer}
   .cell.editable:hover{box-shadow:inset 0 0 0 2px var(--primary-soft)}
   .cell .tag{font-size:10px;text-transform:uppercase;letter-spacing:.05em;font-weight:600}
-
-  /* placement chip in cell */
   .lesson{border-radius:6px;padding:4px 6px;font-size:12px;line-height:1.25;background:var(--primary-soft);border:1px solid #cdd4ee;height:100%;display:flex;flex-direction:column;gap:2px;cursor:pointer}
   .lesson.rotating{background:var(--rotate-soft);border-color:#f0d3ac}
   .lesson .who{font-weight:600;display:flex;align-items:center;gap:4px}
   .lesson .rot{font-size:11px;color:var(--rotate);font-weight:600}
   .lesson .turn{display:flex;flex-direction:column;gap:1px;margin-top:1px}
-  .lesson .turn .t{font-size:11px;color:var(--muted);display:flex;gap:5px;align-items:center}
+  .lesson .turn .t{font-size:11px;color:var(--muted)}
   .lesson .turn .t.now{color:var(--rotate);font-weight:600}
   .lesson .turn .t .idx{font-variant-numeric:tabular-nums}
 
-  /* roster rail */
-  .roster{border-top:1px solid var(--line);background:var(--panel);padding:10px 12px;max-height:34vh;overflow:auto}
-  .roster h3{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:8px;font-weight:650}
-  .rgroup{margin-bottom:10px}
-  .rgroup .gl{font-size:11px;color:var(--muted);margin-bottom:5px;font-weight:600}
-  .chips{display:flex;flex-wrap:wrap;gap:6px}
-  .chip{display:inline-flex;align-items:center;gap:6px;padding:5px 9px;border:1px solid var(--line);border-radius:999px;background:#fff;cursor:grab;user-select:none}
-  .chip:hover{border-color:#c2c8d4}
-  .chip .cdot{width:7px;height:7px;border-radius:2px;flex:none}
-  .chip.sel{border-color:var(--primary);background:var(--primary-soft);box-shadow:0 0 0 1px var(--primary) inset}
-  .chip.placed{opacity:.5}
-  .chip .dur{font-size:11px;color:var(--muted)}
-
-  .banner{display:flex;align-items:center;gap:10px;padding:8px 14px;background:var(--primary-soft);border-bottom:1px solid #cdd4ee;color:var(--primary);font-weight:550}
-  .banner.hide{display:none}
-  .banner button{background:#fff}
-
   .toolbar{display:flex;align-items:center;gap:10px;padding:8px 12px;border-bottom:1px solid var(--line);background:var(--panel);flex-wrap:wrap}
   .toolbar .grow{flex:1}
+  .toolbar .tip{font-size:12px;color:var(--muted)}
   .conflict{color:var(--danger);font-weight:600;font-size:12px}
   .empty{color:var(--muted);padding:24px;text-align:center;font-size:13px}
-  dialog{border:1px solid var(--line);border-radius:12px;padding:0;box-shadow:var(--shadow);max-width:340px;width:90%}
-  dialog::backdrop{background:rgba(20,25,35,.35)}
-  dialog .dlgbody{padding:16px}
-  dialog h3{margin-bottom:10px}
-  .stack{display:flex;flex-direction:column;gap:8px}
-  .toast{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);background:var(--ink);color:#fff;padding:8px 14px;border-radius:8px;font-size:13px;opacity:0;transition:opacity .2s;pointer-events:none;z-index:50}
+
+  dialog{border:1px solid var(--line);border-radius:12px;padding:0;box-shadow:var(--shadow);max-width:440px;width:92%}
+  dialog::backdrop{background:rgba(20,25,35,.4)}
+  .dlgbody{padding:18px}
+  dialog h3{margin-bottom:12px}
+  .stack{display:flex;flex-direction:column;gap:10px}
+  .fldrow{display:flex;gap:8px}
+  .fld2{flex:1;display:flex;flex-direction:column;gap:4px}
+  .modes{display:flex;gap:4px;margin-bottom:14px;background:#f0f1f4;padding:3px;border-radius:8px}
+  .modes button{flex:1;border:none;background:transparent;border-radius:6px;padding:6px;color:var(--muted);font-weight:550}
+  .modes button.on{background:#fff;color:var(--ink);box-shadow:0 1px 2px rgba(0,0,0,.06)}
+  .dlgfoot{display:flex;justify-content:flex-end;gap:8px;margin-top:16px}
+  .toast{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);background:var(--ink);color:#fff;padding:8px 14px;border-radius:8px;font-size:13px;opacity:0;transition:opacity .2s;pointer-events:none;z-index:200}
   .toast.show{opacity:1}
   @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 </style>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
 <body>
-<header class="app">
-  <div class="brand"><b>Lesson Timetabler</b><span id="savestate">saved locally</span></div>
+
+<!-- GATE: shown until connected + logged in -->
+<div id="gate"><div class="gatecard" id="gateCard"><div class="muted">Loading…</div></div></div>
+
+<header class="app" id="appHeader">
+  <div class="brand"><b>Lesson Timetabler</b><span class="syncpill" id="syncPill">—</span></div>
   <div class="tools">
-    <button id="btnExport">Export JSON</button>
-    <button id="btnImport">Import JSON</button>
-    <input id="fileImport" type="file" accept="application/json" hidden>
-    <button id="btnReset" class="ghost danger">Reset</button>
+    <span class="muted" id="whoami" style="font-size:12px"></span>
+    <button id="btnLogout" class="ghost">Log out</button>
   </div>
 </header>
 
-<main>
-  <!-- LEFT: setup -->
+<main id="appMain">
   <section class="left">
     <div class="segbar" id="segbar">
-      <button data-seg="timetable" class="active">Timetable</button>
-      <button data-seg="students">Students</button>
+      <button data-seg="students" class="active">Students</button>
+      <button data-seg="timetable">Timetable</button>
       <button data-seg="restrictions">Restrictions</button>
-      <button data-seg="sync">Sync</button>
+      <button data-seg="account">Account</button>
     </div>
     <div class="panelbody" id="setupBody"></div>
   </section>
-
-  <!-- RIGHT: scheduler -->
   <section class="right">
     <div class="toolbar">
-      <div class="row">
-        <label for="weekSel">Week</label>
-        <select id="weekSel"></select>
-      </div>
+      <div class="row"><label for="weekSel">Week</label><select id="weekSel" style="width:auto"></select></div>
+      <span class="tip">Drag a student on. Drop onto a filled slot to make it rotating.</span>
       <div class="grow"></div>
       <span id="conflictMsg" class="conflict"></span>
       <button id="btnClearPlace" class="ghost">Clear all placements</button>
     </div>
-    <div class="banner hide" id="combineBanner">
-      <span id="combineText"></span>
-      <button id="combineCancel">Cancel</button>
-    </div>
     <div class="gridwrap" id="schedWrap"></div>
-    <div class="roster" id="roster"></div>
   </section>
 </main>
 
@@ -189,15 +180,27 @@
 <script>
 "use strict";
 
-/* ---------------- state ---------------- */
-const LS_KEY = "lesson_timetabler_v1";
-const YEAR_COLORS = ["#3f4ea3","#0f8a5f","#b45309","#8b2fb0","#0e7490","#a13d63","#556b2f","#9a3412"];
+/* ===== connection config ===== */
+/* Fill these two to skip the one-time connect screen (both safe to expose): */
+const BAKED = { url:"", key:"" };
+const CFG_KEY = "lt_conn_cfg";
+function connCfg(){
+  if(BAKED.url && BAKED.key) return {...BAKED, baked:true};
+  try{return JSON.parse(localStorage.getItem(CFG_KEY))||{}}catch(e){return {}}
+}
+function saveConnCfg(c){localStorage.setItem(CFG_KEY,JSON.stringify(c))}
 
+/* ===== app state (cloud-only; no local persistence of data) ===== */
+const YEAR_COLORS=["#3f4ea3","#0f8a5f","#b45309","#8b2fb0","#0e7490","#a13d63","#556b2f","#9a3412"];
+function pid(){return "p"+Math.random().toString(36).slice(2,8)}
+function sid(){return "s"+Math.random().toString(36).slice(2,8)}
+function cellKey(day,periodId){return day+"|"+periodId}
+function parseCell(k){const [day,periodId]=k.split("|");return {day,periodId}}
 function blankState(){
   return {
-    termWeeks: 10,
-    days: ["Mon","Tue","Wed","Thu","Fri"],
-    periods: [
+    termWeeks:10,
+    days:["Mon","Tue","Wed","Thu","Fri"],
+    periods:[
       {id:pid(),name:"P1",start:"09:00",end:"09:45",brk:false},
       {id:pid(),name:"P2",start:"09:45",end:"10:30",brk:false},
       {id:pid(),name:"Recess",start:"10:30",end:"10:50",brk:true},
@@ -207,648 +210,166 @@ function blankState(){
       {id:pid(),name:"P5",start:"13:00",end:"13:45",brk:false},
       {id:pid(),name:"P6",start:"13:45",end:"14:30",brk:false}
     ],
-    students: [],
-    yearRestrictions: {},     // year -> [cellKey]
-    studentRestrictions: {},  // studentId -> [cellKey]
-    placements: []            // {id, cellKey, studentIds:[], rotating}
+    students:[], yearRestrictions:{}, studentRestrictions:{}, placements:[]
   };
 }
-let S = load() || blankState();
-
-function pid(){return "p"+Math.random().toString(36).slice(2,8)}
-function sid(){return "s"+Math.random().toString(36).slice(2,8)}
-function cellKey(day,periodId){return day+"|"+periodId}
-function parseCell(k){const [day,periodId]=k.split("|");return {day,periodId}}
-
-function load(){try{const r=localStorage.getItem(LS_KEY);return r?JSON.parse(r):null}catch(e){return null}}
-let saveTimer=null;
-function save(push=true){
-  clearTimeout(saveTimer);
-  document.getElementById("savestate").textContent="saving…";
-  saveTimer=setTimeout(()=>{
-    localStorage.setItem(LS_KEY,JSON.stringify(S));
-    document.getElementById("savestate").textContent="saved locally";
-  },250);
-  if(push)schedulePush();
-}
-function toast(msg){const t=document.getElementById("toast");t.textContent=msg;t.classList.add("show");setTimeout(()=>t.classList.remove("show"),1600)}
-
-/* ---------------- derived helpers ---------------- */
-function studentById(id){return S.students.find(s=>s.id===id)}
-function yearColor(year){
-  const years=[...new Set(S.students.map(s=>String(s.year)))].sort();
-  const i=years.indexOf(String(year));
-  return YEAR_COLORS[(i<0?0:i)%YEAR_COLORS.length];
-}
-function blockedCellsFor(studentId){
-  const st=studentById(studentId); if(!st) return new Set();
-  const set=new Set(S.yearRestrictions[String(st.year)]||[]);
-  (S.studentRestrictions[studentId]||[]).forEach(k=>set.add(k));
-  return set;
-}
-function placementAt(k){return S.placements.find(p=>p.cellKey===k)}
-function studentPlacements(id){return S.placements.filter(p=>p.studentIds.includes(id))}
-
-/* ---------------- SETUP: segmented panel ---------------- */
-let seg="timetable";
-document.getElementById("segbar").addEventListener("click",e=>{
-  const b=e.target.closest("button[data-seg]"); if(!b)return;
-  seg=b.dataset.seg;
-  document.querySelectorAll("#segbar button").forEach(x=>x.classList.toggle("active",x===b));
-  renderSetup();
-});
-
-function renderSetup(){
-  const el=document.getElementById("setupBody");
-  if(seg==="timetable") el.innerHTML="", el.append(renderTimetableSetup());
-  else if(seg==="students") el.innerHTML="", el.append(renderStudentsSetup());
-  else if(seg==="restrictions") el.innerHTML="", el.append(renderRestrictionsSetup());
-  else el.innerHTML="", el.append(renderSyncSetup());
-}
-
-/* --- timetable setup --- */
-function renderTimetableSetup(){
-  const wrap=document.createElement("div");
-
-  const daysCard=document.createElement("div");daysCard.className="card";
-  daysCard.innerHTML=`<h3>Days</h3>`;
-  const dayRow=document.createElement("div");dayRow.className="chips";
-  ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"].forEach(d=>{
-    const on=S.days.includes(d);
-    const b=document.createElement("button");
-    b.textContent=d;b.className=on?"primary":"";
-    b.onclick=()=>{
-      if(on){S.days=S.days.filter(x=>x!==d);}
-      else{S.days=["Mon","Tue","Wed","Thu","Fri","Sat","Sun"].filter(x=>S.days.includes(x)||x===d);}
-      save();renderAll();
-    };
-    dayRow.append(b);
-  });
-  daysCard.append(dayRow);
-  wrap.append(daysCard);
-
-  const pCard=document.createElement("div");pCard.className="card";
-  pCard.innerHTML=`<h3>Periods</h3>`;
-  const head=document.createElement("div");head.className="prow";
-  head.innerHTML=`<label>Name</label><label>Start</label><label>End</label><span></span>`;
-  pCard.append(head);
-  S.periods.forEach((p,i)=>{
-    const r=document.createElement("div");r.className="prow";
-    const nm=document.createElement("input");nm.value=p.name;nm.oninput=()=>{p.name=nm.value;save();renderRight()};
-    const st=document.createElement("input");st.type="time";st.value=p.start;st.oninput=()=>{p.start=st.value;save();renderRight()};
-    const en=document.createElement("input");en.type="time";en.value=p.end;en.oninput=()=>{p.end=en.value;save();renderRight()};
-    const del=document.createElement("button");del.textContent="×";del.title="Remove period";
-    del.onclick=()=>{S.periods.splice(i,1);save();renderAll()};
-    r.append(nm,st,en,del);
-    // break toggle line
-    pCard.append(r);
-    const br=document.createElement("div");br.style.margin="-2px 0 8px 2px";
-    const lbl=document.createElement("label");lbl.style.display="flex";lbl.style.gap="6px";lbl.style.alignItems="center";
-    const cb=document.createElement("input");cb.type="checkbox";cb.checked=!!p.brk;cb.onchange=()=>{p.brk=cb.checked;save();renderAll()};
-    lbl.append(cb,document.createTextNode("Break (not a teachable slot)"));
-    br.append(lbl);pCard.append(br);
-  });
-  const add=document.createElement("button");add.textContent="+ Add period";
-  add.onclick=()=>{S.periods.push({id:pid(),name:"P"+(S.periods.length+1),start:"14:30",end:"15:15",brk:false});save();renderAll()};
-  pCard.append(add);
-  wrap.append(pCard);
-
-  const tCard=document.createElement("div");tCard.className="card";
-  tCard.innerHTML=`<h3>Term length</h3>`;
-  const tr=document.createElement("div");tr.className="row";
-  const ti=document.createElement("input");ti.type="number";ti.min="1";ti.max="52";ti.value=S.termWeeks;ti.style.width="70px";
-  ti.oninput=()=>{S.termWeeks=Math.max(1,parseInt(ti.value||"1"));save();renderWeekSelect()};
-  tr.append(ti,Object.assign(document.createElement("span"),{className:"muted",textContent:"weeks"}));
-  tCard.append(tr);wrap.append(tCard);
-
-  return wrap;
-}
-
-/* --- students setup --- */
-function renderStudentsSetup(){
-  const wrap=document.createElement("div");
-
-  const bulk=document.createElement("div");bulk.className="card";
-  bulk.innerHTML=`<h3>Bulk add</h3><div class="muted" style="margin-bottom:8px">One student per line: <code>Name, Instrument, Year, Duration(min)</code></div>`;
-  const ta=document.createElement("textarea");
-  ta.placeholder="Ava Chen, Violin, 7, 30\nNoah Patel, Trumpet, 9, 20";
-  bulk.append(ta);
-  const parseBtn=document.createElement("button");parseBtn.className="primary";parseBtn.textContent="Add these";parseBtn.style.marginTop="8px";
-  parseBtn.onclick=()=>{
-    let n=0;
-    ta.value.split("\n").map(l=>l.trim()).filter(Boolean).forEach(line=>{
-      const parts=line.split(",").map(x=>x.trim());
-      if(!parts[0])return;
-      S.students.push({id:sid(),name:parts[0],instrument:parts[1]||"",year:parts[2]||"",duration:parseInt(parts[3])||30});
-      n++;
-    });
-    ta.value="";save();renderAll();toast(n+" student"+(n===1?"":"s")+" added");
+function migrate(d){
+  const b=blankState();
+  return {
+    termWeeks:d.termWeeks||b.termWeeks,
+    days:(d.days&&d.days.length)?d.days:b.days,
+    periods:(d.periods&&d.periods.length)?d.periods:b.periods,
+    students:d.students||[],
+    yearRestrictions:d.yearRestrictions||{},
+    studentRestrictions:d.studentRestrictions||{},
+    placements:d.placements||[]
   };
-  bulk.append(parseBtn);
-  wrap.append(bulk);
-
-  const one=document.createElement("div");one.className="card";
-  one.innerHTML=`<h3>Add one</h3>`;
-  const g=document.createElement("div");g.className="col";
-  const nm=mkInput("Name");const inst=mkInput("Instrument");
-  const yr=mkInput("Year");yr.el.style.width="80px";
-  const dur=mkInput("Duration (min)");dur.el.type="number";dur.el.value="30";dur.el.style.width="110px";
-  const r1=document.createElement("div");r1.className="row";r1.append(nm.wrap,inst.wrap);
-  const r2=document.createElement("div");r2.className="row";r2.append(yr.wrap,dur.wrap);
-  const addB=document.createElement("button");addB.className="primary";addB.textContent="Add student";
-  addB.onclick=()=>{
-    if(!nm.el.value.trim())return;
-    S.students.push({id:sid(),name:nm.el.value.trim(),instrument:inst.el.value.trim(),year:yr.el.value.trim(),duration:parseInt(dur.el.value)||30});
-    nm.el.value="";inst.el.value="";yr.el.value="";dur.el.value="30";
-    save();renderAll();
-  };
-  g.append(r1,r2,addB);one.append(g);wrap.append(one);
-
-  const list=document.createElement("div");list.className="card";
-  list.innerHTML=`<h3>Roster (${S.students.length})</h3>`;
-  if(!S.students.length){list.append(Object.assign(document.createElement("div"),{className:"muted",textContent:"No students yet."}));}
-  const byYear={};
-  S.students.forEach(s=>{(byYear[s.year||"—"]=byYear[s.year||"—"]||[]).push(s)});
-  Object.keys(byYear).sort().forEach(y=>{
-    const h=document.createElement("div");h.className="gl";h.style.margin="8px 0 6px";h.style.fontSize="11px";h.style.color="var(--muted)";h.textContent="Year "+y;
-    list.append(h);
-    byYear[y].forEach(s=>{
-      const row=document.createElement("div");row.className="stud";
-      const dot=document.createElement("span");dot.className="dot";dot.style.background=yearColor(s.year);
-      const meta=document.createElement("div");meta.className="meta";
-      meta.innerHTML=`<div class="nm">${esc(s.name)}</div><div class="sub">${esc(s.instrument||"—")} · ${s.duration}min</div>`;
-      const del=document.createElement("button");del.textContent="Remove";del.className="danger";
-      del.onclick=()=>{
-        S.students=S.students.filter(x=>x.id!==s.id);
-        delete S.studentRestrictions[s.id];
-        S.placements=S.placements.map(p=>({...p,studentIds:p.studentIds.filter(id=>id!==s.id)})).filter(p=>p.studentIds.length);
-        save();renderAll();
-      };
-      row.append(dot,meta,del);list.append(row);
-    });
-  });
-  wrap.append(list);
-  return wrap;
 }
-function mkInput(ph){const wrap=document.createElement("div");wrap.className="col";const el=document.createElement("input");el.placeholder=ph;wrap.append(el);return{wrap,el}}
+let S=blankState();
 
-/* --- restrictions setup --- */
-let rxScope={type:"year",value:null}; // or {type:"student",value:id}
-function renderRestrictionsSetup(){
-  const wrap=document.createElement("div");
-  const c=document.createElement("div");c.className="card";
-  c.innerHTML=`<h3>Restriction scope</h3><div class="muted" style="margin-bottom:8px">Pick a year level to block a slot for everyone in it (assembly, sport), or a student to block a class only they must not miss. Then click cells in the grid below.</div>`;
+/* ===== supabase ===== */
+let sb=null, sbUser=null, lastSynced=null, pushTimer=null, applyingRemote=false;
+function esc(s){return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
+function toast(m){const t=document.getElementById("toast");t.textContent=m;t.classList.add("show");setTimeout(()=>t.classList.remove("show"),1700)}
+function isMissingTable(e){const s=((e&&e.message)||"")+((e&&e.code)||"");return /app_state/.test(s)&&/exist|not.*find|relation|schema/i.test(s)||/PGRST205|42P01/.test(s)}
 
-  const years=[...new Set(S.students.map(s=>String(s.year)).filter(Boolean))].sort();
-  const sc=document.createElement("div");sc.className="row";sc.style.flexWrap="wrap";
-  const typeSel=document.createElement("select");
-  typeSel.innerHTML=`<option value="year">Year level</option><option value="student">Individual student</option>`;
-  typeSel.value=rxScope.type;
-  const valSel=document.createElement("select");
-  function fillVal(){
-    valSel.innerHTML="";
-    if(typeSel.value==="year"){
-      if(!years.length){valSel.innerHTML=`<option value="">— add students first —</option>`;}
-      years.forEach(y=>valSel.append(new Option("Year "+y,y)));
-      rxScope={type:"year",value:rxScope.type==="year"&&rxScope.value?rxScope.value:(years[0]||null)};
-    }else{
-      if(!S.students.length){valSel.innerHTML=`<option value="">— add students first —</option>`;}
-      S.students.forEach(s=>valSel.append(new Option(s.name+" (Yr "+(s.year||"—")+")",s.id)));
-      rxScope={type:"student",value:S.students[0]?.id||null};
-    }
-    if(valSel.value) rxScope.value=valSel.value;
-  }
-  fillVal();
-  valSel.value=rxScope.value||"";
-  typeSel.onchange=()=>{fillVal();valSel.value=rxScope.value||"";renderRestrictionGrid(gridHost)};
-  valSel.onchange=()=>{rxScope.value=valSel.value;renderRestrictionGrid(gridHost)};
-  sc.append(typeSel,valSel);c.append(sc);
-
-  const legend=document.createElement("div");legend.style.marginTop="10px";legend.className="row";legend.style.flexWrap="wrap";
-  legend.innerHTML=`<span class="pill" style="background:#fbeaea;color:#9a2b2b">Year block</span>
-    <span class="pill" style="background:#f4eeee;color:#b98a8a">Inherited (year)</span>
-    <span class="pill" style="background:#fde9d6;color:#9a5312">Student block</span>`;
-  c.append(legend);
-  wrap.append(c);
-
-  const gridCard=document.createElement("div");gridCard.className="card";
-  gridCard.innerHTML=`<h3>Click to toggle</h3>`;
-  const gridHost=document.createElement("div");gridHost.style.overflow="auto";
-  gridCard.append(gridHost);wrap.append(gridCard);
-  renderRestrictionGrid(gridHost);
-  return wrap;
-}
-function renderRestrictionGrid(host){
-  host.innerHTML="";
-  if(!rxScope.value){host.innerHTML=`<div class="muted">Add students to define restrictions.</div>`;return}
-  const tbl=buildGridShell();
-  const tbody=tbl.querySelector("tbody");
-  const isYear=rxScope.type==="year";
-  const yearSet=isYear?new Set(S.yearRestrictions[rxScope.value]||[]):null;
-  let inheritSet=null, studSet=null;
-  if(!isYear){
-    const st=studentById(rxScope.value);
-    inheritSet=new Set(S.yearRestrictions[String(st.year)]||[]);
-    studSet=new Set(S.studentRestrictions[rxScope.value]||[]);
-  }
-  S.periods.forEach(p=>{
-    const tr=document.createElement("tr");
-    tr.append(rowHead(p));
-    S.days.forEach(day=>{
-      const td=document.createElement("td");td.className="cell";
-      const k=cellKey(day,p.id);
-      if(p.brk){td.classList.add("break");tr.append(td);return;}
-      td.classList.add("editable");
-      if(isYear){
-        if(yearSet.has(k)){td.classList.add("rx-year");td.innerHTML=`<span class="tag">block</span>`;}
-        td.onclick=()=>{toggleSet(S.yearRestrictions,rxScope.value,k);save();renderRestrictionGrid(host);renderRight()};
-      }else{
-        if(inheritSet.has(k)){td.classList.add("rx-inherit");td.innerHTML=`<span class="tag">year</span>`;}
-        else if(studSet.has(k)){td.classList.add("rx-student");td.innerHTML=`<span class="tag">block</span>`;}
-        td.onclick=()=>{
-          if(inheritSet.has(k)){toast("Set on the year level — change it there.");return;}
-          toggleSet(S.studentRestrictions,rxScope.value,k);save();renderRestrictionGrid(host);renderRight();
-        };
-      }
-      tr.append(td);
-    });
-    tbody.append(tr);
-  });
-  host.append(tbl);
-}
-function toggleSet(store,key,cell){
-  const arr=store[key]||(store[key]=[]);
-  const i=arr.indexOf(cell);
-  if(i<0)arr.push(cell);else arr.splice(i,1);
+function setSync(state,e){
+  const p=document.getElementById("syncPill");if(!p)return;
+  p.className="syncpill "+(state==="saving"?"saving":state==="synced"?"synced":state==="error"?"error":"");
+  if(state==="saving")p.textContent="saving…";
+  else if(state==="synced")p.textContent="synced "+(lastSynced?lastSynced.toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"}):"");
+  else if(state==="error")p.textContent="save error";
+  else if(state==="offline")p.textContent="offline";
+  else p.textContent="—";
 }
 
-/* ---------------- shared grid shell ---------------- */
-function buildGridShell(){
-  const tbl=document.createElement("table");tbl.className="grid";
-  const thead=document.createElement("thead");const htr=document.createElement("tr");
-  const corner=document.createElement("th");corner.className="rowhead";corner.textContent="";htr.append(corner);
-  S.days.forEach(d=>{const th=document.createElement("th");th.textContent=d;htr.append(th)});
-  thead.append(htr);tbl.append(thead);
-  tbl.append(document.createElement("tbody"));
-  return tbl;
-}
-function rowHead(p){
-  const td=document.createElement("td");td.className="rowhead";
-  td.innerHTML=`<div class="pn">${esc(p.name)}</div><div class="pt">${p.start}–${p.end}</div>`;
-  return td;
-}
-
-/* ---------------- SCHEDULER ---------------- */
-let dragStudentId=null;
-let combineSel=new Set();   // selected student ids for a rotating slot
-let arming=false;           // waiting for a target cell to place combined group
-
-function renderRight(){renderSchedule();renderRoster();renderConflicts();updateCombineBanner()}
-
-function renderSchedule(){
-  const host=document.getElementById("schedWrap");host.innerHTML="";
-  if(!S.students.length){host.innerHTML=`<div class="empty">Add students on the left, then drag them onto the grid.</div>`;return}
-  const tbl=buildGridShell();const tbody=tbl.querySelector("tbody");
-  const week=parseInt(document.getElementById("weekSel").value||"1");
-
-  S.periods.forEach(p=>{
-    const tr=document.createElement("tr");tr.append(rowHead(p));
-    S.days.forEach(day=>{
-      const td=document.createElement("td");td.className="cell";
-      const k=cellKey(day,p.id);td.dataset.k=k;
-      if(p.brk){td.classList.add("break");tr.append(td);return}
-
-      const plc=placementAt(k);
-      if(plc){td.append(renderLesson(plc,week));}
-
-      // drag-target grey-out driven by dragStudentId or arming set
-      td.addEventListener("dragover",e=>{
-        if(!dragStudentId)return;
-        if(blockedCellsFor(dragStudentId).has(k)){e.dataTransfer.dropEffect="none";return}
-        e.preventDefault();e.dataTransfer.dropEffect="move";
-      });
-      td.addEventListener("drop",e=>{
-        e.preventDefault();if(!dragStudentId)return;
-        dropStudentOnCell(dragStudentId,k);
-      });
-      // arming (combine) click-to-place
-      td.addEventListener("click",()=>{
-        if(!arming)return;
-        placeCombinedOnCell(k);
-      });
-      tr.append(td);
-    });
-    tbody.append(tr);
-  });
-  host.append(tbl);
-  paintDragHints();
-}
-
-function renderLesson(plc,week){
-  const div=document.createElement("div");
-  const rotating=plc.studentIds.length>1;
-  div.className="lesson"+(rotating?" rotating":"");
-  const names=plc.studentIds.map(id=>studentById(id)).filter(Boolean);
-  if(!rotating){
-    const s=names[0];
-    div.innerHTML=`<div class="who"><span class="cdot" style="width:7px;height:7px;border-radius:2px;background:${yearColor(s.year)}"></span>${esc(s.name)}</div>
-      <div class="muted" style="font-size:11px">${esc(s.instrument||"")} · ${s.duration}min</div>`;
-  }else{
-    const turnIdx=(week-1)%names.length;
-    let turns=`<div class="turn">`;
-    names.forEach((s,i)=>{
-      turns+=`<div class="t ${i===turnIdx?"now":""}"><span class="idx">${i+1}.</span>${esc(s.name)}${i===turnIdx?" ← this week":""}</div>`;
-    });
-    turns+=`</div>`;
-    div.innerHTML=`<div class="who"><span class="rot">⟳ rotating ×${names.length}</span></div>${turns}`;
-  }
-  div.title="Click to edit this slot";
-  div.onclick=(e)=>{e.stopPropagation();openLessonDialog(plc)};
-  return div;
-}
-
-function dropStudentOnCell(studentId,k){
-  if(blockedCellsFor(studentId).has(k)){toast("Blocked for this student.");return}
-  const existing=placementAt(k);
-  if(existing){
-    if(existing.studentIds.includes(studentId)){toast("Already in this slot.");return}
-    // adding to an occupied cell -> becomes rotating; verify allowed for the newcomer only (already checked)
-    existing.studentIds.push(studentId);
-    existing.rotating=existing.studentIds.length>1;
-  }else{
-    S.placements.push({id:pid(),cellKey:k,studentIds:[studentId],rotating:false});
-  }
-  save();renderRight();
-}
-
-function placeCombinedOnCell(k){
-  const ids=[...combineSel];
-  // must be allowed for ALL selected
-  const bad=ids.filter(id=>blockedCellsFor(id).has(k));
-  if(bad.length){toast("Blocked for "+bad.map(id=>studentById(id)?.name).join(", "));return}
-  const existing=placementAt(k);
-  if(existing){
-    ids.forEach(id=>{if(!existing.studentIds.includes(id))existing.studentIds.push(id)});
-    existing.rotating=existing.studentIds.length>1;
-  }else{
-    S.placements.push({id:pid(),cellKey:k,studentIds:ids,rotating:ids.length>1});
-  }
-  arming=false;combineSel.clear();
-  save();renderRight();toast("Rotating slot placed.");
-}
-
-function paintDragHints(){
-  const cells=document.querySelectorAll("#schedWrap .cell");
-  cells.forEach(td=>{td.classList.remove("drop-ok","drop-no","arm-ok")});
-  if(dragStudentId){
-    const blocked=blockedCellsFor(dragStudentId);
-    cells.forEach(td=>{
-      const k=td.dataset.k;if(!k)return;
-      if(blocked.has(k))td.classList.add("drop-no");else td.classList.add("drop-ok");
-    });
-  }else if(arming){
-    const ids=[...combineSel];
-    cells.forEach(td=>{
-      const k=td.dataset.k;if(!k)return;
-      const ok=ids.every(id=>!blockedCellsFor(id).has(k));
-      td.classList.add(ok?"arm-ok":"drop-no");
-    });
-  }
-}
-
-/* roster rail with draggable + selectable chips */
-function renderRoster(){
-  const host=document.getElementById("roster");host.innerHTML="";
-  const h=document.createElement("div");h.className="row";
-  h.innerHTML=`<h3 style="flex:1">Students — drag to place · click to select for a rotating slot</h3>`;
-  const combineBtn=document.createElement("button");
-  combineBtn.textContent="Combine "+(combineSel.size||"")+" into rotating slot";
-  combineBtn.className="primary";combineBtn.disabled=combineSel.size<2;
-  combineBtn.onclick=()=>{arming=true;combineBtn.blur();renderRight();toast("Click an available cell.")};
-  h.append(combineBtn);
-  host.append(h);
-
-  if(!S.students.length){host.append(Object.assign(document.createElement("div"),{className:"muted",textContent:"No students yet."}));return}
-  const byYear={};
-  S.students.forEach(s=>{(byYear[s.year||"—"]=byYear[s.year||"—"]||[]).push(s)});
-  Object.keys(byYear).sort().forEach(y=>{
-    const g=document.createElement("div");g.className="rgroup";
-    g.innerHTML=`<div class="gl">Year ${y}</div>`;
-    const chips=document.createElement("div");chips.className="chips";
-    byYear[y].forEach(s=>{
-      const chip=document.createElement("div");chip.className="chip";
-      if(combineSel.has(s.id))chip.classList.add("sel");
-      if(studentPlacements(s.id).length)chip.classList.add("placed");
-      chip.draggable=true;
-      chip.innerHTML=`<span class="cdot" style="background:${yearColor(s.year)}"></span>${esc(s.name)} <span class="dur">${esc(s.instrument||"")}·${s.duration}m</span>`;
-      chip.addEventListener("dragstart",e=>{dragStudentId=s.id;e.dataTransfer.effectAllowed="move";e.dataTransfer.setData("text/plain",s.id);paintDragHints()});
-      chip.addEventListener("dragend",()=>{dragStudentId=null;paintDragHints()});
-      chip.addEventListener("click",()=>{
-        if(combineSel.has(s.id))combineSel.delete(s.id);else combineSel.add(s.id);
-        arming=false;renderRight();
-      });
-      chips.append(chip);
-    });
-    g.append(chips);host.append(g);
-  });
-}
-
-function updateCombineBanner(){
-  const banner=document.getElementById("combineBanner");
-  const txt=document.getElementById("combineText");
-  if(arming&&combineSel.size>=2){
-    banner.classList.remove("hide");
-    txt.textContent="Placing "+[...combineSel].map(id=>studentById(id)?.name).join(" · ")+" as a rotating slot — click an available cell.";
-  }else banner.classList.add("hide");
-}
-document.getElementById("combineCancel").onclick=()=>{arming=false;renderRight()};
-
-/* lesson edit dialog */
-let dlg;
-function openLessonDialog(plc){
-  if(!dlg){dlg=document.createElement("dialog");document.body.append(dlg)}
-  const {day,periodId}=parseCell(plc.cellKey);
-  const p=S.periods.find(x=>x.id===periodId);
-  const names=plc.studentIds.map(id=>studentById(id)).filter(Boolean);
-  dlg.innerHTML=`<div class="dlgbody">
-    <h3>${esc(day)} · ${esc(p?.name||"")} ${p?`<span class="muted" style="font-weight:400">${p.start}–${p.end}</span>`:""}</h3>
-    <div class="stack" id="dlgList"></div>
-    <div class="row" style="margin-top:14px;justify-content:flex-end">
-      <button id="dlgDelAll" class="danger">Remove slot</button>
-      <button id="dlgClose" class="primary">Done</button>
-    </div>
-  </div>`;
-  const list=dlg.querySelector("#dlgList");
-  names.forEach(s=>{
-    const r=document.createElement("div");r.className="row";
-    r.innerHTML=`<span class="cdot" style="width:8px;height:8px;border-radius:2px;background:${yearColor(s.year)}"></span>
-      <span style="flex:1">${esc(s.name)} <span class="muted">(${esc(s.instrument||"—")})</span></span>`;
-    const rm=document.createElement("button");rm.textContent="Remove";rm.className="danger";
-    rm.onclick=()=>{
-      plc.studentIds=plc.studentIds.filter(id=>id!==s.id);
-      if(!plc.studentIds.length)S.placements=S.placements.filter(x=>x.id!==plc.id);
-      else plc.rotating=plc.studentIds.length>1;
-      save();dlg.close();renderRight();
-    };
-    r.append(rm);list.append(r);
-  });
-  dlg.querySelector("#dlgDelAll").onclick=()=>{S.placements=S.placements.filter(x=>x.id!==plc.id);save();dlg.close();renderRight()};
-  dlg.querySelector("#dlgClose").onclick=()=>dlg.close();
-  dlg.showModal();
-}
-
-/* conflicts */
-function renderConflicts(){
-  const msgs=[];
-  // double-booked students
-  const seen={};
-  S.placements.forEach(p=>p.studentIds.forEach(id=>{seen[id]=(seen[id]||0)+1}));
-  const dbl=Object.entries(seen).filter(([,n])=>n>1).map(([id])=>studentById(id)?.name).filter(Boolean);
-  if(dbl.length)msgs.push(dbl.length+" double-booked: "+dbl.join(", "));
-  // blocked violations (shouldn't happen via UI, but guard)
-  let viol=0;
-  S.placements.forEach(p=>p.studentIds.forEach(id=>{if(blockedCellsFor(id).has(p.cellKey))viol++}));
-  if(viol)msgs.push(viol+" in blocked slots");
-  document.getElementById("conflictMsg").textContent=msgs.join(" · ");
-}
-
-/* week selector */
-function renderWeekSelect(){
-  const sel=document.getElementById("weekSel");const cur=sel.value||"1";
-  sel.innerHTML="";
-  for(let i=1;i<=S.termWeeks;i++)sel.append(new Option("Week "+i,i));
-  sel.value=Math.min(parseInt(cur),S.termWeeks);
-}
-document.getElementById("weekSel").addEventListener("change",renderSchedule);
-
-document.getElementById("btnClearPlace").onclick=()=>{
-  if(!S.placements.length)return;
-  if(confirm("Remove all placements from the grid?")){S.placements=[];save();renderRight()}
-};
-
-/* ---------------- top toolbar ---------------- */
-document.getElementById("btnExport").onclick=()=>{
-  const blob=new Blob([JSON.stringify(S,null,2)],{type:"application/json"});
-  const a=document.createElement("a");a.href=URL.createObjectURL(blob);
-  a.download="lesson-timetabler-"+new Date().toISOString().slice(0,10)+".json";a.click();
-  URL.revokeObjectURL(a.href);
-};
-document.getElementById("btnImport").onclick=()=>document.getElementById("fileImport").click();
-document.getElementById("fileImport").onchange=e=>{
-  const f=e.target.files[0];if(!f)return;
-  const r=new FileReader();
-  r.onload=()=>{try{S=JSON.parse(r.result);save();renderAll();toast("Imported.")}catch(x){toast("Invalid file.")}};
-  r.readAsText(f);e.target.value="";
-};
-document.getElementById("btnReset").onclick=()=>{
-  if(confirm("Reset everything? This clears local data.")){S=blankState();save();renderAll()}
-};
-
-/* ---------------- SUPABASE SYNC ---------------- */
-const SYNC_KEY="lesson_timetabler_sync_cfg";
-let sb=null, sbUser=null, lastSynced=null, pushTimer=null;
-function syncCfg(){try{return JSON.parse(localStorage.getItem(SYNC_KEY))||{}}catch(e){return {}}}
-function saveSyncCfg(c){localStorage.setItem(SYNC_KEY,JSON.stringify(c))}
-function updateSyncStatus(){if(seg==="sync")renderSetup()}
-
-function initSupabase(){
-  const c=syncCfg();
-  if(c.url&&c.key&&window.supabase){
-    sb=window.supabase.createClient(c.url,c.key);
-    sb.auth.getSession().then(({data})=>{
-      if(data&&data.session){sbUser=data.session.user;updateSyncStatus()}
-    });
-    sb.auth.onAuthStateChange((_e,session)=>{sbUser=session?session.user:null;updateSyncStatus()});
-  }
-}
-
-async function signUp(email,pw){
-  if(!email||!pw){toast("Enter email and password.");return}
-  const {error}=await sb.auth.signUp({email,password:pw});
-  if(error){toast(error.message);return}
-  toast("Account created. If email confirmation is on, confirm first, then Sign in.");
-}
-async function signIn(email,pw){
-  if(!email||!pw){toast("Enter email and password.");return}
-  const {data,error}=await sb.auth.signInWithPassword({email,password:pw});
-  if(error){toast(error.message);return}
-  sbUser=data.user;updateSyncStatus();await firstSync();
-}
-async function signOut(){await sb.auth.signOut();sbUser=null;updateSyncStatus()}
-
-async function firstSync(){
-  const {data,error}=await sb.from('app_state').select('data').eq('user_id',sbUser.id).maybeSingle();
-  if(error){toast("Sync error: "+error.message);return}
-  const localHas=S.students.length||S.placements.length;
-  const cloud=data&&data.data;
-  const cloudHas=cloud&&((cloud.students&&cloud.students.length)||(cloud.placements&&cloud.placements.length));
-  if(cloudHas&&localHas){chooseSyncDirection(cloud);}
-  else if(cloudHas){S=cloud;save(false);renderAll();lastSynced=new Date();updateSyncStatus();toast("Loaded from cloud.");}
-  else{await pushNow();toast("Saved to cloud.");}
-}
-function chooseSyncDirection(cloudData){
-  if(!dlg){dlg=document.createElement("dialog");document.body.append(dlg)}
-  dlg.innerHTML=`<div class="dlgbody"><h3>Two copies found</h3>
-    <p class="muted" style="margin:0 0 14px">This device and the cloud both have data. Keep one — the other is replaced.</p>
-    <div class="row" style="justify-content:flex-end;gap:8px">
-      <button id="useCloud">Use cloud</button>
-      <button id="useLocal" class="primary">Keep this device</button>
-    </div></div>`;
-  dlg.querySelector("#useCloud").onclick=()=>{S=cloudData;save(false);renderAll();lastSynced=new Date();updateSyncStatus();dlg.close();toast("Loaded from cloud.")};
-  dlg.querySelector("#useLocal").onclick=async()=>{dlg.close();await pushNow();toast("Saved to cloud.")};
-  dlg.showModal();
-}
-
-async function pushNow(){
+/* cloud-only save: schedule a debounced push; never writes app data to disk */
+function save(push=true){ if(push && !applyingRemote) scheduleCloudPush() }
+function scheduleCloudPush(){
   if(!sb||!sbUser)return;
-  const {error}=await sb.from('app_state').upsert({user_id:sbUser.id,data:S,updated_at:new Date().toISOString()},{onConflict:'user_id'});
-  if(error){toast("Push failed: "+error.message);return}
-  lastSynced=new Date();updateSyncStatus();
-}
-async function pullNow(silent){
-  if(!sb||!sbUser){if(!silent)toast("Sign in first.");return}
-  const {data,error}=await sb.from('app_state').select('data').eq('user_id',sbUser.id).maybeSingle();
-  if(error){if(!silent)toast(error.message);return}
-  if(data&&data.data){S=data.data;save(false);renderAll();lastSynced=new Date();updateSyncStatus();if(!silent)toast("Pulled from cloud.")}
-  else if(!silent)toast("Nothing in the cloud yet.");
-}
-function schedulePush(){
-  if(!sb||!sbUser)return;
+  if(!navigator.onLine){setSync("offline");return}
+  setSync("saving");
   clearTimeout(pushTimer);
-  pushTimer=setTimeout(pushNow,1200);
+  pushTimer=setTimeout(cloudPush,600);
+}
+async function cloudPush(){
+  if(!sb||!sbUser)return;
+  try{
+    const {error}=await sb.from("app_state").upsert(
+      {user_id:sbUser.id,data:S,updated_at:new Date().toISOString()},{onConflict:"user_id"});
+    if(error){ if(isMissingTable(error))showTableError(); else setSync("error",error); return }
+    lastSynced=new Date(); setSync("synced");
+  }catch(e){ setSync("error",e) }
+}
+async function loadFromCloud(){
+  applyingRemote=true;
+  try{
+    const {data,error}=await sb.from("app_state").select("data").eq("user_id",sbUser.id).maybeSingle();
+    if(error){ applyingRemote=false; if(isMissingTable(error)){showTableError();return false} setSync("error",error); toast("Couldn't load: "+error.message); return false }
+    if(data&&data.data&&Object.keys(data.data).length){ S=migrate(data.data) }
+    else { S=blankState(); }
+    applyingRemote=false;
+    if(!data){ await cloudPush() }        // create the row on first login
+    lastSynced=new Date(); setSync("synced");
+    return true;
+  }catch(e){ applyingRemote=false; setSync("error",e); return false }
+}
+document.addEventListener("visibilitychange",()=>{ if(document.visibilityState==="hidden"){clearTimeout(pushTimer);cloudPush()} });
+window.addEventListener("beforeunload",()=>{ if(sb&&sbUser){clearTimeout(pushTimer);cloudPush()} });
+window.addEventListener("online",()=>{ if(sb&&sbUser){scheduleCloudPush()} });
+window.addEventListener("offline",()=>setSync("offline"));
+
+/* ===== gate / auth flow ===== */
+function boot(){
+  const cfg=connCfg();
+  if(!cfg.url||!cfg.key){ showConnectScreen(); return; }
+  if(!window.supabase){ gateMessage("Couldn't load the sync library — check your internet connection and reload."); return; }
+  sb=window.supabase.createClient(cfg.url,cfg.key);
+  sb.auth.onAuthStateChange((_e,session)=>{
+    const was=sbUser; sbUser=session?session.user:null;
+    if(sbUser && !was){ enterApp(); }
+    else if(!sbUser && was){ location.reload(); }   // clean slate on logout
+  });
+  sb.auth.getSession().then(({data})=>{
+    if(data&&data.session){ sbUser=data.session.user; enterApp(); }
+    else { showLoginScreen(); }
+  });
+}
+async function enterApp(){
+  document.getElementById("whoami").textContent=sbUser.email||"";
+  const ok=await loadFromCloud();
+  if(ok===false && document.getElementById("gate").dataset.mode==="table") return; // stay on table-setup screen
+  document.getElementById("gate").style.display="none";
+  document.getElementById("appHeader").style.display="flex";
+  document.getElementById("appMain").style.display="grid";
+  renderAll();
 }
 
-function renderSyncSetup(){
-  const wrap=document.createElement("div");
-  const cfg=syncCfg();
-
-  if(!window.supabase){
-    const c=document.createElement("div");c.className="card";
-    c.innerHTML=`<h3>Cloud sync</h3><div class="muted">The sync library didn't load — you may be offline. Everything still works and saves on this device; sync needs an internet connection.</div>`;
-    wrap.append(c);return wrap;
-  }
-
-  // 1 · connect
-  const c1=document.createElement("div");c1.className="card";
-  c1.innerHTML=`<h3>1 · Connect your project</h3>
-    <div class="muted" style="margin-bottom:10px">In Supabase, open your project → <b>Settings → API Keys</b>. Copy the <b>Project URL</b> and the <b>publishable key</b> (begins with <code>sb_publishable_</code>). Paste both here — they're safe to store.</div>`;
-  const url=mkInput("Project URL — https://xxxx.supabase.co");url.el.value=cfg.url||"";
-  const key=mkInput("Publishable key — sb_publishable_…");key.el.value=cfg.key||"";
-  const saveBtn=document.createElement("button");saveBtn.className="primary";saveBtn.textContent="Save connection";saveBtn.style.marginTop="8px";
-  saveBtn.onclick=()=>{
-    const u=url.el.value.trim(),k=key.el.value.trim();
-    if(!u||!k){toast("Enter both values.");return}
-    saveSyncCfg({url:u,key:k});sb=window.supabase.createClient(u,k);toast("Connected.");renderSetup();
+function gateMessage(msg){
+  document.getElementById("gate").style.display="flex";
+  document.getElementById("gateCard").innerHTML=`<div class="brand"><b>Lesson Timetabler</b></div><div class="sub">${esc(msg)}</div>`;
+}
+function showLoginScreen(err){
+  const g=document.getElementById("gate");g.style.display="flex";g.dataset.mode="login";
+  document.getElementById("appHeader").style.display="none";document.getElementById("appMain").style.display="none";
+  g.querySelector(".gatecard").innerHTML=`
+    <div class="brand"><b>Lesson Timetabler</b></div>
+    <div class="sub">Sign in to your schedule.</div>
+    <div class="fld"><label>Email</label><input id="lg_email" type="email" autocomplete="username"></div>
+    <div class="fld"><label>Password</label><input id="lg_pw" type="password" autocomplete="current-password"></div>
+    <div class="err" id="lg_err">${err?esc(err):""}</div>
+    <div class="actions"><button id="lg_in" class="primary">Log in</button><button id="lg_up">Create account</button></div>
+    <div class="foot">Your data is private to this account.</div>`;
+  const em=g.querySelector("#lg_email"), pw=g.querySelector("#lg_pw"), er=g.querySelector("#lg_err");
+  const attempt=async(mode)=>{
+    er.textContent="";
+    const e=em.value.trim(), p=pw.value;
+    if(!e||!p){er.textContent="Enter email and password.";return}
+    if(mode==="up"){
+      const {error}=await sb.auth.signUp({email:e,password:p});
+      if(error){er.textContent=error.message;return}
+      er.style.color="var(--ok)";er.textContent="Account created. If email confirmation is on, confirm then log in.";
+    }else{
+      const {data,error}=await sb.auth.signInWithPassword({email:e,password:p});
+      if(error){er.textContent=error.message;return}
+      /* onAuthStateChange handles entering the app */
+    }
   };
-  c1.append(url.wrap,key.wrap,saveBtn);
-  if(cfg.url&&cfg.key){const p=document.createElement("span");p.className="pill";p.style.marginLeft="8px";p.style.background="var(--ok-soft)";p.style.color="var(--ok)";p.textContent="saved";saveBtn.after(p)}
-  wrap.append(c1);
-
-  // 2 · table SQL
-  const c2=document.createElement("div");c2.className="card";
-  c2.innerHTML=`<h3>2 · Create the storage table (once)</h3>
-    <div class="muted" style="margin-bottom:8px">In Supabase, open <b>SQL Editor → New query</b>, paste this, click <b>Run</b>. You only do this one time.</div>`;
-  const sql=`create table if not exists public.app_state (
+  g.querySelector("#lg_in").onclick=()=>attempt("in");
+  g.querySelector("#lg_up").onclick=()=>attempt("up");
+  pw.addEventListener("keydown",e=>{if(e.key==="Enter")attempt("in")});
+  em.focus();
+}
+function showConnectScreen(){
+  const g=document.getElementById("gate");g.style.display="flex";g.dataset.mode="connect";
+  g.querySelector(".gatecard").innerHTML=`
+    <div class="brand"><b>Lesson Timetabler</b></div>
+    <div class="sub">One-time setup: connect this app to your Supabase project. In Supabase → Settings → API Keys, copy the Project URL and the publishable key.</div>
+    <div class="fld"><label>Project URL</label><input id="cn_url" placeholder="https://xxxx.supabase.co"></div>
+    <div class="fld"><label>Publishable key</label><input id="cn_key" placeholder="sb_publishable_…"></div>
+    <div class="err" id="cn_err"></div>
+    <div class="actions"><button id="cn_go" class="primary">Connect</button></div>
+    <div class="foot">These are connection settings, not your schedule. Your schedule data is never stored on this device.</div>`;
+  g.querySelector("#cn_go").onclick=()=>{
+    const u=g.querySelector("#cn_url").value.trim(), k=g.querySelector("#cn_key").value.trim();
+    if(!u||!k){g.querySelector("#cn_err").textContent="Enter both values.";return}
+    saveConnCfg({url:u,key:k}); boot();
+  };
+}
+function showTableError(){
+  const g=document.getElementById("gate");g.style.display="flex";g.dataset.mode="table";
+  document.getElementById("appHeader").style.display="none";document.getElementById("appMain").style.display="none";
+  const sql=tableSQL();
+  g.querySelector(".gatecard").style.maxWidth="520px";
+  g.querySelector(".gatecard").innerHTML=`
+    <div class="brand"><b>One more setup step</b></div>
+    <div class="sub">Your account works, but the storage table doesn't exist yet. In Supabase → SQL Editor → New query, paste this and click Run (once).</div>
+    <textarea readonly style="min-height:170px">${esc(sql)}</textarea>
+    <div class="actions" style="margin-top:10px"><button id="tb_copy">Copy SQL</button><button id="tb_retry" class="primary">I've run it — continue</button></div>`;
+  g.querySelector("#tb_copy").onclick=()=>navigator.clipboard.writeText(sql).then(()=>toast("Copied.")).catch(()=>toast("Select and copy manually."));
+  g.querySelector("#tb_retry").onclick=()=>{g.dataset.mode="";enterApp()};
+}
+function tableSQL(){return `create table if not exists public.app_state (
   user_id uuid primary key references auth.users(id) on delete cascade,
   data jsonb not null default '{}',
   updated_at timestamptz not null default now()
@@ -856,44 +377,360 @@ function renderSyncSetup(){
 alter table public.app_state enable row level security;
 create policy "select own" on public.app_state for select using (auth.uid() = user_id);
 create policy "insert own" on public.app_state for insert with check (auth.uid() = user_id);
-create policy "update own" on public.app_state for update using (auth.uid() = user_id) with check (auth.uid() = user_id);`;
-  const pre=document.createElement("textarea");pre.value=sql;pre.readOnly=true;pre.style.minHeight="160px";
-  const copy=document.createElement("button");copy.textContent="Copy SQL";copy.style.marginTop="8px";
-  copy.onclick=()=>{navigator.clipboard.writeText(sql).then(()=>toast("Copied.")).catch(()=>toast("Select the text and copy manually."))};
-  c2.append(pre,copy);wrap.append(c2);
+create policy "update own" on public.app_state for update using (auth.uid() = user_id) with check (auth.uid() = user_id);`}
 
-  // 3 · account
-  const c3=document.createElement("div");c3.className="card";
-  c3.innerHTML=`<h3>3 · Sign in</h3>`;
-  if(!sb){c3.append(Object.assign(document.createElement("div"),{className:"muted",textContent:"Save your connection above first."}));wrap.append(c3);return wrap}
-  if(!sbUser){
-    c3.insertAdjacentHTML("beforeend",`<div class="muted" style="margin-bottom:8px">First time only: enter an email + password, click <b>Create account</b>. After that, use <b>Sign in</b>.</div>`);
-    const em=mkInput("Email");em.el.type="email";
-    const pw=mkInput("Password");pw.el.type="password";
-    const row=document.createElement("div");row.className="row";row.style.marginTop="8px";
-    const inB=document.createElement("button");inB.className="primary";inB.textContent="Sign in";inB.onclick=()=>signIn(em.el.value.trim(),pw.el.value);
-    const upB=document.createElement("button");upB.textContent="Create account";upB.onclick=()=>signUp(em.el.value.trim(),pw.el.value);
-    row.append(inB,upB);c3.append(em.wrap,pw.wrap,row);
-  }else{
-    c3.insertAdjacentHTML("beforeend",`<div class="row" style="margin-bottom:10px"><span class="pill" style="background:var(--ok-soft);color:var(--ok)">signed in</span><span>${esc(sbUser.email||"")}</span></div>`);
-    const row=document.createElement("div");row.className="row";
-    const push=document.createElement("button");push.textContent="Push to cloud";push.onclick=()=>pushNow().then(()=>toast("Pushed."));
-    const pull=document.createElement("button");pull.textContent="Pull from cloud";pull.onclick=()=>pullNow(false);
-    const out=document.createElement("button");out.className="ghost";out.textContent="Sign out";out.onclick=signOut;
-    row.append(push,pull,out);c3.append(row);
-    const ls=document.createElement("div");ls.className="muted";ls.style.marginTop="8px";ls.style.fontSize="12px";
-    ls.textContent=lastSynced?("Last synced "+lastSynced.toLocaleTimeString()+" · auto-syncs after each change"):"Auto-syncs after each change.";
-    c3.append(ls);
+document.getElementById("btnLogout").onclick=async()=>{ clearTimeout(pushTimer); await cloudPush(); await sb.auth.signOut(); };
+
+/* ===== derived helpers ===== */
+function studentById(id){return S.students.find(s=>s.id===id)}
+function yearColor(year){const ys=[...new Set(S.students.map(s=>String(s.year)))].sort();const i=ys.indexOf(String(year));return YEAR_COLORS[(i<0?0:i)%YEAR_COLORS.length]}
+function blockedCellsFor(studentId){const st=studentById(studentId);if(!st)return new Set();const set=new Set(S.yearRestrictions[String(st.year)]||[]);(S.studentRestrictions[studentId]||[]).forEach(k=>set.add(k));return set}
+function placementAt(k){return S.placements.find(p=>p.cellKey===k)}
+function studentPlacements(id){return S.placements.filter(p=>p.studentIds.includes(id))}
+
+/* ===== left panel routing ===== */
+let seg="students";
+document.getElementById("segbar").addEventListener("click",e=>{
+  const b=e.target.closest("button[data-seg]");if(!b)return;
+  seg=b.dataset.seg;
+  document.querySelectorAll("#segbar button").forEach(x=>x.classList.toggle("active",x===b));
+  renderSetup();
+});
+function renderSetup(){
+  const el=document.getElementById("setupBody");el.innerHTML="";
+  if(seg==="students")el.append(renderStudents());
+  else if(seg==="timetable")el.append(renderTimetable());
+  else if(seg==="restrictions")el.append(renderRestrictions());
+  else el.append(renderAccount());
+}
+
+/* ===== STUDENTS (roster + drag source) ===== */
+function renderStudents(){
+  const wrap=document.createElement("div");
+  const head=document.createElement("div");head.className="studenthead";
+  head.innerHTML=`<span class="ct">Students (${S.students.length})</span>`;
+  const add=document.createElement("button");add.className="primary";add.textContent="+ Add students";add.onclick=openAddDialog;
+  head.append(add);wrap.append(head);
+  wrap.append(Object.assign(document.createElement("div"),{className:"hint",textContent:"Drag a name onto the schedule. Click a name to edit."}));
+
+  if(!S.students.length){
+    wrap.append(Object.assign(document.createElement("div"),{className:"empty",textContent:"No students yet. Use “Add students”."}));
+    return wrap;
   }
-  wrap.append(c3);
+  const byYear={};S.students.forEach(s=>{(byYear[s.year||"—"]=byYear[s.year||"—"]||[]).push(s)});
+  Object.keys(byYear).sort().forEach(y=>{
+    const g=document.createElement("div");g.className="ygroup";
+    g.append(Object.assign(document.createElement("div"),{className:"gl",textContent:"Year "+y}));
+    byYear[y].forEach(s=>{
+      const row=document.createElement("div");row.className="stud"+(studentPlacements(s.id).length?" placed":"");
+      row.draggable=true;
+      row.innerHTML=`<span class="grip">⋮⋮</span><span class="dot" style="background:${yearColor(s.year)}"></span>
+        <span class="meta"><span class="nm">${esc(s.name)}</span><span class="sub">${esc(s.instrument||"—")} · ${s.duration}min</span></span>
+        <span class="edit">edit</span>`;
+      row.addEventListener("dragstart",e=>{dragStudentId=s.id;e.dataTransfer.effectAllowed="move";e.dataTransfer.setData("text/plain",s.id);paintDragHints()});
+      row.addEventListener("dragend",()=>{dragStudentId=null;paintDragHints()});
+      row.addEventListener("click",()=>openEditDialog(s));
+      g.append(row);
+    });
+    wrap.append(g);
+  });
   return wrap;
 }
 
-/* ---------------- boot ---------------- */
+/* add dialog: one-at-a-time OR paste list */
+let dlg;
+function ensureDlg(){if(!dlg){dlg=document.createElement("dialog");document.body.append(dlg)}return dlg}
+function openAddDialog(){
+  const d=ensureDlg();let mode="one";
+  const render=()=>{
+    d.innerHTML=`<div class="dlgbody">
+      <h3>Add students</h3>
+      <div class="modes"><button data-m="one" class="${mode==="one"?"on":""}">One at a time</button><button data-m="bulk" class="${mode==="bulk"?"on":""}">Paste a list</button></div>
+      <div id="addPane"></div>
+    </div>`;
+    d.querySelectorAll(".modes button").forEach(b=>b.onclick=()=>{mode=b.dataset.m;render()});
+    const pane=d.querySelector("#addPane");
+    if(mode==="one"){
+      pane.innerHTML=`<div class="stack">
+        <div class="fld2"><label>Name</label><input id="a_name"></div>
+        <div class="fldrow"><div class="fld2"><label>Instrument</label><input id="a_inst"></div><div class="fld2"><label>Year</label><input id="a_year"></div></div>
+        <div class="fld2"><label>Lesson length (min)</label><input id="a_dur" type="number" placeholder="30" style="max-width:120px"></div>
+      </div>
+      <div class="dlgfoot"><button id="a_cancel">Cancel</button><button id="a_more">Add &amp; new</button><button id="a_done" class="primary">Add &amp; close</button></div>`;
+      const grab=()=>({name:pane.querySelector("#a_name").value.trim(),instrument:pane.querySelector("#a_inst").value.trim(),year:pane.querySelector("#a_year").value.trim(),duration:parseInt(pane.querySelector("#a_dur").value)||30});
+      const commit=(g)=>{if(!g.name){toast("Name is required.");return false}S.students.push({id:sid(),...g});return true};
+      pane.querySelector("#a_cancel").onclick=()=>d.close();
+      pane.querySelector("#a_more").onclick=()=>{if(commit(grab())){save();renderStudents_refresh();render();d.querySelector("#a_name")?.focus()}};
+      pane.querySelector("#a_done").onclick=()=>{if(commit(grab())){save();renderStudents_refresh();d.close()}};
+      pane.querySelector("#a_name").focus();
+    }else{
+      pane.innerHTML=`<div class="hint">One per line: <code>Name, Instrument, Year, Duration</code>. Duration is optional (defaults to 30).</div>
+        <textarea id="a_bulk" placeholder="Ava Chen, Violin, 7, 30&#10;Noah Patel, Trumpet, 9"></textarea>
+        <div class="dlgfoot"><button id="a_cancel2">Cancel</button><button id="a_addall" class="primary">Add all</button></div>`;
+      pane.querySelector("#a_cancel2").onclick=()=>d.close();
+      pane.querySelector("#a_addall").onclick=()=>{
+        let n=0;
+        pane.querySelector("#a_bulk").value.split("\n").map(l=>l.trim()).filter(Boolean).forEach(line=>{
+          const p=line.split(",").map(x=>x.trim());if(!p[0])return;
+          S.students.push({id:sid(),name:p[0],instrument:p[1]||"",year:p[2]||"",duration:parseInt(p[3])||30});n++;
+        });
+        if(n){save();renderStudents_refresh();d.close();toast(n+" added")}else toast("Nothing to add.");
+      };
+    }
+  };
+  render();d.showModal();
+}
+function openEditDialog(s){
+  const d=ensureDlg();
+  d.innerHTML=`<div class="dlgbody">
+    <h3>Edit student</h3>
+    <div class="stack">
+      <div class="fld2"><label>Name</label><input id="e_name" value="${esc(s.name)}"></div>
+      <div class="fldrow"><div class="fld2"><label>Instrument</label><input id="e_inst" value="${esc(s.instrument||"")}"></div><div class="fld2"><label>Year</label><input id="e_year" value="${esc(s.year||"")}"></div></div>
+      <div class="fld2"><label>Lesson length (min)</label><input id="e_dur" type="number" value="${s.duration||30}" style="max-width:120px"></div>
+    </div>
+    <div class="dlgfoot"><button id="e_del" class="danger">Delete</button><span style="flex:1"></span><button id="e_cancel">Cancel</button><button id="e_save" class="primary">Save</button></div>
+  </div>`;
+  d.querySelector("#e_cancel").onclick=()=>d.close();
+  d.querySelector("#e_save").onclick=()=>{
+    const nm=d.querySelector("#e_name").value.trim();if(!nm){toast("Name is required.");return}
+    s.name=nm;s.instrument=d.querySelector("#e_inst").value.trim();s.year=d.querySelector("#e_year").value.trim();s.duration=parseInt(d.querySelector("#e_dur").value)||30;
+    save();renderStudents_refresh();renderRight();d.close();
+  };
+  d.querySelector("#e_del").onclick=()=>{
+    if(!confirm("Delete "+s.name+"? This also removes them from the schedule."))return;
+    S.students=S.students.filter(x=>x.id!==s.id);
+    delete S.studentRestrictions[s.id];
+    S.placements=S.placements.map(p=>({...p,studentIds:p.studentIds.filter(id=>id!==s.id)})).filter(p=>p.studentIds.length);
+    save();renderStudents_refresh();renderRight();d.close();
+  };
+  d.showModal();
+}
+function renderStudents_refresh(){ if(seg==="students")renderSetup() }
+
+/* ===== TIMETABLE ===== */
+function renderTimetable(){
+  const wrap=document.createElement("div");
+  const daysCard=document.createElement("div");daysCard.className="card";daysCard.innerHTML=`<h3>Days</h3>`;
+  const dr=document.createElement("div");dr.className="row";dr.style.flexWrap="wrap";
+  ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"].forEach(d=>{
+    const on=S.days.includes(d);const b=document.createElement("button");b.textContent=d;b.className=on?"primary":"";
+    b.onclick=()=>{if(on)S.days=S.days.filter(x=>x!==d);else S.days=["Mon","Tue","Wed","Thu","Fri","Sat","Sun"].filter(x=>S.days.includes(x)||x===d);save();renderAll()};
+    dr.append(b);
+  });
+  daysCard.append(dr);wrap.append(daysCard);
+
+  const pCard=document.createElement("div");pCard.className="card";pCard.innerHTML=`<h3>Periods</h3>`;
+  const hd=document.createElement("div");hd.className="prow";hd.innerHTML=`<label>Name</label><label>Start</label><label>End</label><span></span>`;pCard.append(hd);
+  S.periods.forEach((p,i)=>{
+    const r=document.createElement("div");r.className="prow";
+    const nm=document.createElement("input");nm.value=p.name;nm.oninput=()=>{p.name=nm.value;save();renderRight()};
+    const st=document.createElement("input");st.type="time";st.value=p.start;st.oninput=()=>{p.start=st.value;save();renderRight()};
+    const en=document.createElement("input");en.type="time";en.value=p.end;en.oninput=()=>{p.end=en.value;save();renderRight()};
+    const del=document.createElement("button");del.textContent="×";del.onclick=()=>{S.periods.splice(i,1);save();renderAll()};
+    r.append(nm,st,en,del);pCard.append(r);
+    const br=document.createElement("label");br.style.cssText="display:flex;gap:6px;align-items:center;margin:-2px 0 10px 2px";
+    const cb=document.createElement("input");cb.type="checkbox";cb.checked=!!p.brk;cb.style.width="auto";cb.onchange=()=>{p.brk=cb.checked;save();renderAll()};
+    br.append(cb,document.createTextNode("Break (not a teachable slot)"));pCard.append(br);
+  });
+  const addp=document.createElement("button");addp.textContent="+ Add period";addp.onclick=()=>{S.periods.push({id:pid(),name:"P"+(S.periods.length+1),start:"14:30",end:"15:15",brk:false});save();renderAll()};
+  pCard.append(addp);wrap.append(pCard);
+
+  const tCard=document.createElement("div");tCard.className="card";tCard.innerHTML=`<h3>Term length</h3>`;
+  const ti=document.createElement("input");ti.type="number";ti.min="1";ti.value=S.termWeeks;ti.style.width="80px";
+  ti.oninput=()=>{S.termWeeks=Math.max(1,parseInt(ti.value||"1"));save();renderWeekSelect()};
+  const tr=document.createElement("div");tr.className="row";tr.append(ti,Object.assign(document.createElement("span"),{className:"muted",textContent:"weeks"}));
+  tCard.append(tr);wrap.append(tCard);
+  return wrap;
+}
+
+/* ===== RESTRICTIONS ===== */
+let rxScope={type:"year",value:null};
+function renderRestrictions(){
+  const wrap=document.createElement("div");
+  const c=document.createElement("div");c.className="card";
+  c.innerHTML=`<h3>Restriction scope</h3><div class="hint">Pick a year to block a slot for everyone in it (assembly, sport). Pick a student to block a class only they must not miss. Then click cells below.</div>`;
+  const years=[...new Set(S.students.map(s=>String(s.year)).filter(Boolean))].sort();
+  const typeSel=document.createElement("select");typeSel.innerHTML=`<option value="year">Year level</option><option value="student">Individual student</option>`;typeSel.value=rxScope.type;typeSel.style.width="auto";
+  const valSel=document.createElement("select");valSel.style.width="auto";
+  function fillVal(){
+    valSel.innerHTML="";
+    if(typeSel.value==="year"){
+      if(!years.length)valSel.innerHTML=`<option value="">— add students first —</option>`;
+      years.forEach(y=>valSel.append(new Option("Year "+y,y)));
+      rxScope={type:"year",value:(rxScope.type==="year"&&rxScope.value)?rxScope.value:(years[0]||null)};
+    }else{
+      if(!S.students.length)valSel.innerHTML=`<option value="">— add students first —</option>`;
+      S.students.forEach(s=>valSel.append(new Option(s.name+" (Yr "+(s.year||"—")+")",s.id)));
+      rxScope={type:"student",value:S.students[0]?S.students[0].id:null};
+    }
+    if(valSel.value)rxScope.value=valSel.value;
+  }
+  fillVal();valSel.value=rxScope.value||"";
+  typeSel.onchange=()=>{fillVal();valSel.value=rxScope.value||"";renderRxGrid(host)};
+  valSel.onchange=()=>{rxScope.value=valSel.value;renderRxGrid(host)};
+  const sc=document.createElement("div");sc.className="row";sc.style.flexWrap="wrap";sc.append(typeSel,valSel);c.append(sc);
+  const legend=document.createElement("div");legend.style.marginTop="10px";legend.className="row";legend.style.flexWrap="wrap";
+  legend.innerHTML=`<span class="pill" style="background:#fbeaea;color:#9a2b2b">Year block</span><span class="pill" style="background:#f4eeee;color:#b98a8a">Inherited</span><span class="pill" style="background:#fde9d6;color:#9a5312">Student block</span>`;
+  c.append(legend);wrap.append(c);
+  const gc=document.createElement("div");gc.className="card";gc.innerHTML=`<h3>Click to toggle</h3>`;
+  const host=document.createElement("div");host.style.overflow="auto";gc.append(host);wrap.append(gc);
+  renderRxGrid(host);
+  return wrap;
+}
+function renderRxGrid(host){
+  host.innerHTML="";
+  if(!rxScope.value){host.innerHTML=`<div class="muted">Add students to define restrictions.</div>`;return}
+  const tbl=gridShell();const tb=tbl.querySelector("tbody");
+  const isYear=rxScope.type==="year";
+  const yearSet=isYear?new Set(S.yearRestrictions[rxScope.value]||[]):null;
+  let inh=null,stu=null;
+  if(!isYear){const st=studentById(rxScope.value);inh=new Set(S.yearRestrictions[String(st.year)]||[]);stu=new Set(S.studentRestrictions[rxScope.value]||[])}
+  S.periods.forEach(p=>{
+    const tr=document.createElement("tr");tr.append(rowHead(p));
+    S.days.forEach(day=>{
+      const td=document.createElement("td");td.className="cell";const k=cellKey(day,p.id);
+      if(p.brk){td.classList.add("break");tr.append(td);return}
+      td.classList.add("editable");
+      if(isYear){
+        if(yearSet.has(k)){td.classList.add("rx-year");td.innerHTML=`<span class="tag">block</span>`}
+        td.onclick=()=>{toggle(S.yearRestrictions,rxScope.value,k);save();renderRxGrid(host);renderRight()};
+      }else{
+        if(inh.has(k)){td.classList.add("rx-inherit");td.innerHTML=`<span class="tag">year</span>`}
+        else if(stu.has(k)){td.classList.add("rx-student");td.innerHTML=`<span class="tag">block</span>`}
+        td.onclick=()=>{if(inh.has(k)){toast("Set at the year level.");return}toggle(S.studentRestrictions,rxScope.value,k);save();renderRxGrid(host);renderRight()};
+      }
+      tr.append(td);
+    });
+    tb.append(tr);
+  });
+  host.append(tbl);
+}
+function toggle(store,key,cell){const a=store[key]||(store[key]=[]);const i=a.indexOf(cell);if(i<0)a.push(cell);else a.splice(i,1)}
+
+/* ===== ACCOUNT ===== */
+function renderAccount(){
+  const wrap=document.createElement("div");
+  const c1=document.createElement("div");c1.className="card";c1.innerHTML=`<h3>Account</h3>`;
+  c1.insertAdjacentHTML("beforeend",`<div class="row" style="margin-bottom:10px"><span class="pill" style="background:var(--ok-soft);color:var(--ok)">signed in</span><span>${esc(sbUser?sbUser.email:"")}</span></div>`);
+  const out=document.createElement("button");out.textContent="Log out";out.onclick=()=>document.getElementById("btnLogout").click();
+  c1.append(out);wrap.append(c1);
+
+  const c2=document.createElement("div");c2.className="card";c2.innerHTML=`<h3>Backup</h3><div class="hint">Optional. Export downloads a copy to your computer; import replaces your cloud data.</div>`;
+  const exp=document.createElement("button");exp.textContent="Export JSON";exp.onclick=()=>{
+    const b=new Blob([JSON.stringify(S,null,2)],{type:"application/json"});const a=document.createElement("a");a.href=URL.createObjectURL(b);a.download="lesson-timetabler-"+new Date().toISOString().slice(0,10)+".json";a.click();URL.revokeObjectURL(a.href);
+  };
+  const imp=document.createElement("button");imp.textContent="Import JSON";
+  const fi=document.createElement("input");fi.type="file";fi.accept="application/json";fi.hidden=true;
+  imp.onclick=()=>fi.click();
+  fi.onchange=e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=()=>{try{S=migrate(JSON.parse(r.result));save();renderAll();toast("Imported.")}catch(x){toast("Invalid file.")}};r.readAsText(f);fi.value=""};
+  const r=document.createElement("div");r.className="row";r.append(exp,imp,fi);c2.append(r);wrap.append(c2);
+
+  const c3=document.createElement("div");c3.className="card";c3.innerHTML=`<h3>Danger</h3>`;
+  const clr=document.createElement("button");clr.className="danger";clr.textContent="Clear my schedule";
+  clr.onclick=()=>{if(confirm("Erase all students, restrictions and placements from your account?")){S=blankState();save();renderAll();toast("Cleared.")}};
+  c3.append(clr);wrap.append(c3);
+
+  const c4=document.createElement("div");c4.className="card";c4.innerHTML=`<h3>Privacy</h3><div class="hint">Your data is readable only by your own account. Because this is a public web page, anyone can still open it and register their own separate account. To lock signups to just you, disable new sign-ups in Supabase → Authentication → Sign In / Providers after you've created your account.</div>`;
+  wrap.append(c4);
+  return wrap;
+}
+
+/* ===== shared grid ===== */
+function gridShell(){
+  const t=document.createElement("table");t.className="grid";
+  const th=document.createElement("thead");const htr=document.createElement("tr");
+  const corner=document.createElement("th");corner.className="rowhead";htr.append(corner);
+  S.days.forEach(d=>{const x=document.createElement("th");x.textContent=d;htr.append(x)});
+  th.append(htr);t.append(th);t.append(document.createElement("tbody"));return t;
+}
+function rowHead(p){const td=document.createElement("td");td.className="rowhead";td.innerHTML=`<div class="pn">${esc(p.name)}</div><div class="pt">${p.start}–${p.end}</div>`;return td}
+
+/* ===== SCHEDULER ===== */
+let dragStudentId=null;
+function renderRight(){renderSchedule();renderConflicts();if(seg==="students")renderSetup()}
+function renderSchedule(){
+  const host=document.getElementById("schedWrap");host.innerHTML="";
+  if(!S.students.length){host.innerHTML=`<div class="empty">Add students, then drag them onto the grid.</div>`;return}
+  const tbl=gridShell();const tb=tbl.querySelector("tbody");
+  const week=parseInt(document.getElementById("weekSel").value||"1");
+  S.periods.forEach(p=>{
+    const tr=document.createElement("tr");tr.append(rowHead(p));
+    S.days.forEach(day=>{
+      const td=document.createElement("td");td.className="cell";const k=cellKey(day,p.id);td.dataset.k=k;
+      if(p.brk){td.classList.add("break");tr.append(td);return}
+      const plc=placementAt(k);if(plc)td.append(renderLesson(plc,week));
+      td.addEventListener("dragover",e=>{if(!dragStudentId)return;if(blockedCellsFor(dragStudentId).has(k)){e.dataTransfer.dropEffect="none";return}e.preventDefault();e.dataTransfer.dropEffect="move"});
+      td.addEventListener("drop",e=>{e.preventDefault();if(!dragStudentId)return;dropStudent(dragStudentId,k)});
+      tr.append(td);
+    });
+    tb.append(tr);
+  });
+  host.append(tbl);paintDragHints();
+}
+function renderLesson(plc,week){
+  const div=document.createElement("div");const rotating=plc.studentIds.length>1;
+  div.className="lesson"+(rotating?" rotating":"");
+  const names=plc.studentIds.map(id=>studentById(id)).filter(Boolean);
+  if(!rotating){
+    const s=names[0];
+    div.innerHTML=`<div class="who"><span class="dot" style="width:8px;height:8px;border-radius:2px;background:${yearColor(s.year)}"></span>${esc(s.name)}</div><div class="muted" style="font-size:11px">${esc(s.instrument||"")} · ${s.duration}min</div>`;
+  }else{
+    const turn=(week-1)%names.length;
+    let t=`<div class="turn">`;names.forEach((s,i)=>{t+=`<div class="t ${i===turn?"now":""}"><span class="idx">${i+1}.</span> ${esc(s.name)}${i===turn?" ← this week":""}</div>`});t+=`</div>`;
+    div.innerHTML=`<div class="who"><span class="rot">⟳ rotating ×${names.length}</span></div>${t}`;
+  }
+  div.title="Edit this slot";
+  div.onclick=e=>{e.stopPropagation();openLessonDialog(plc)};
+  return div;
+}
+function dropStudent(studentId,k){
+  if(blockedCellsFor(studentId).has(k)){toast("Blocked for this student.");return}
+  const ex=placementAt(k);
+  if(ex){if(ex.studentIds.includes(studentId)){toast("Already here.");return}ex.studentIds.push(studentId);ex.rotating=ex.studentIds.length>1}
+  else S.placements.push({id:pid(),cellKey:k,studentIds:[studentId],rotating:false});
+  save();renderRight();
+}
+function paintDragHints(){
+  const cells=document.querySelectorAll("#schedWrap .cell");
+  cells.forEach(td=>td.classList.remove("drop-ok","drop-no"));
+  if(!dragStudentId)return;
+  const blocked=blockedCellsFor(dragStudentId);
+  cells.forEach(td=>{const k=td.dataset.k;if(!k)return;td.classList.add(blocked.has(k)?"drop-no":"drop-ok")});
+}
+function openLessonDialog(plc){
+  const d=ensureDlg();const {day,periodId}=parseCell(plc.cellKey);const p=S.periods.find(x=>x.id===periodId);
+  const names=plc.studentIds.map(id=>studentById(id)).filter(Boolean);
+  d.innerHTML=`<div class="dlgbody"><h3>${esc(day)} · ${esc(p?p.name:"")} <span class="muted" style="font-weight:400">${p?p.start+"–"+p.end:""}</span></h3><div class="stack" id="ll"></div><div class="dlgfoot"><button id="ll_del" class="danger">Remove slot</button><span style="flex:1"></span><button id="ll_close" class="primary">Done</button></div></div>`;
+  const list=d.querySelector("#ll");
+  names.forEach(s=>{
+    const r=document.createElement("div");r.className="row";
+    r.innerHTML=`<span class="dot" style="width:8px;height:8px;border-radius:2px;background:${yearColor(s.year)}"></span><span style="flex:1">${esc(s.name)} <span class="muted">(${esc(s.instrument||"—")})</span></span>`;
+    const rm=document.createElement("button");rm.textContent="Remove";rm.className="danger";
+    rm.onclick=()=>{plc.studentIds=plc.studentIds.filter(id=>id!==s.id);if(!plc.studentIds.length)S.placements=S.placements.filter(x=>x.id!==plc.id);else plc.rotating=plc.studentIds.length>1;save();d.close();renderRight()};
+    r.append(rm);list.append(r);
+  });
+  d.querySelector("#ll_del").onclick=()=>{S.placements=S.placements.filter(x=>x.id!==plc.id);save();d.close();renderRight()};
+  d.querySelector("#ll_close").onclick=()=>d.close();
+  d.showModal();
+}
+function renderConflicts(){
+  const seen={};S.placements.forEach(p=>p.studentIds.forEach(id=>{seen[id]=(seen[id]||0)+1}));
+  const dbl=Object.entries(seen).filter(([,n])=>n>1).map(([id])=>studentById(id)?.name).filter(Boolean);
+  const msg=dbl.length?(dbl.length+" double-booked: "+dbl.join(", ")):"";
+  document.getElementById("conflictMsg").textContent=msg;
+}
+function renderWeekSelect(){
+  const sel=document.getElementById("weekSel");const cur=sel.value||"1";sel.innerHTML="";
+  for(let i=1;i<=S.termWeeks;i++)sel.append(new Option("Week "+i,i));
+  sel.value=Math.min(parseInt(cur),S.termWeeks);
+}
+document.getElementById("weekSel").addEventListener("change",renderSchedule);
+document.getElementById("btnClearPlace").onclick=()=>{if(!S.placements.length)return;if(confirm("Remove all placements?")){S.placements=[];save();renderRight()}};
+
+/* ===== boot ===== */
 function renderAll(){renderWeekSelect();renderSetup();renderRight()}
-function esc(s){return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
-renderAll();
-initSupabase();
+boot();
 </script>
 </body>
 </html>
