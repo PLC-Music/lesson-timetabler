@@ -85,7 +85,7 @@
 
   /* calendar shell */
   .cal{border:1px solid var(--line);border-radius:8px;background:#fff;min-width:580px}
-  .calhead{display:grid;grid-template-columns:58px repeat(var(--cols),1fr);border-bottom:1px solid var(--line);position:sticky;top:0;background:#fafbfc;z-index:5}
+  .calhead{display:grid;grid-template-columns:58px repeat(var(--cols),1fr);border-bottom:1px solid var(--line);position:sticky;top:0;background:#fafbfc;z-index:5;pointer-events:none}
   .calh{padding:8px;text-align:center;font-weight:600;font-size:12px;border-left:1px solid var(--line)}
   .calh:first-child{border-left:none}
   .calbody{display:grid;grid-template-columns:58px repeat(var(--cols),1fr);position:relative}
@@ -127,7 +127,7 @@
   .rslot.rx-student{background:#fde9d6;border-color:#f0cfa8}.rslot.rx-student .bn{color:#9a5312;font-weight:600}
   .rslot.rx-teacher{background:#e9ebef;border-color:#d3d7de}.rslot.rx-teacher .bn{color:#5b6270;font-weight:600}
   .rslot.rx-unavail{background:#eceef1;border-color:#d5d9e0}.rslot.rx-unavail .bn{color:#8a909c}
-  .calh.dayhead{cursor:pointer}.calh.dayhead:hover{background:#eef0f7;color:var(--primary)}
+  .calh.dayhead{cursor:pointer;pointer-events:auto}.calh.dayhead:hover{background:#eef0f7;color:var(--primary)}
   .unavailzone{position:absolute;left:0;right:0;background:repeating-linear-gradient(135deg,#eceef1,#eceef1 6px,#e2e5ea 6px,#e2e5ea 7px);border-top:1px solid #d5d9e0;border-bottom:1px solid #d5d9e0;pointer-events:none;z-index:1}
   .unavailzone .uz{position:absolute;left:4px;top:2px;font-size:9px;color:#8a909c;text-transform:uppercase;letter-spacing:.03em}
   .rslot.rx-sel{box-shadow:inset 0 0 0 2px var(--primary)}
@@ -203,9 +203,11 @@ const SCHOOL_PERIODS=[
   {id:"pcg",name:"PCG",start:"08:30",end:"08:55"},
   {id:"p1",name:"Period 1",start:"08:55",end:"09:40"},
   {id:"p2",name:"Period 2",start:"09:40",end:"10:25"},
+  {id:"rec",name:"Morning Tea",start:"10:25",end:"10:45"},
   {id:"p3",name:"Period 3",start:"10:45",end:"11:30"},
   {id:"p4",name:"Period 4",start:"11:30",end:"12:15"},
   {id:"p5",name:"Period 5",start:"12:15",end:"13:00"},
+  {id:"lun",name:"Lunch",start:"13:00",end:"13:40"},
   {id:"p6",name:"Period 6",start:"13:40",end:"14:25"},
   {id:"p7",name:"Period 7",start:"14:25",end:"15:10"}
 ];
@@ -658,17 +660,23 @@ function paintBlocked(){
 }
 function onColDragover(e,day,col,ds){
   if(!dragPayload)return;e.preventDefault();e.dataTransfer.dropEffect="move";
-  document.querySelectorAll(".preview").forEach(n=>n.remove());
   document.querySelectorAll(".lesson.mergeTarget").forEach(n=>n.classList.remove("mergeTarget"));
   const dur=payloadDuration();const sids=payloadStudents();const excl=dragPayload.type==="move"?dragPayload.placementId:null;
   const desired=yToTime(col,e.clientY,ds);const snapped=Math.round(desired/5)*5;
-  if(dragPayload.type==="new"){const hit=placementOnAt(day,snapped);if(hit){const el=col.querySelector('.lesson[data-pid="'+hit.id+'"]');if(el)el.classList.add("mergeTarget");return}}
+  if(dragPayload.type==="new"){const hit=placementOnAt(day,snapped);if(hit){hidePreview();const el=col.querySelector('.lesson[data-pid="'+hit.id+'"]');if(el)el.classList.add("mergeTarget");return}}
   const slot=findSlot(day,desired,dur,sids,excl);
-  const pv=document.createElement("div");pv.className="preview"+(slot==null?" bad":"");
-  const top=(slot==null?snapped:slot);pv.style.top=((top-ds)*PXPM)+"px";pv.style.height=(dur*PXPM)+"px";
-  pv.innerHTML=`<span class="pl">${slot==null?"no room":minToStr(slot)}</span>`;
-  col.append(pv);
+  const top=(slot==null?snapped:slot);
+  showPreview(col,slot==null,((top-ds)*PXPM),(dur*PXPM),slot==null?"no room":minToStr(slot));
 }
+let _preview=null;
+function showPreview(col,bad,top,height,label){
+  if(!_preview){_preview=document.createElement("div");}
+  _preview.className="preview"+(bad?" bad":"");
+  _preview.style.top=top+"px";_preview.style.height=height+"px";
+  _preview.innerHTML=`<span class="pl">${label}</span>`;
+  if(_preview.parentNode!==col)col.append(_preview);
+}
+function hidePreview(){if(_preview&&_preview.parentNode)_preview.parentNode.removeChild(_preview);}
 function onColDrop(e,day,col,ds){
   e.preventDefault();if(!dragPayload)return;
   const desired=yToTime(col,e.clientY,ds);const snapped=Math.round(desired/5)*5;
