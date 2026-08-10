@@ -211,7 +211,7 @@ function migrate(d){
 let S=blankState();
 
 /* ===== supabase + sync (local-first) ===== */
-let sb=null,sbUser=null,lastSynced=null,pushTimer=null,applyingRemote=false;
+let sb=null,sbUser=null,lastSynced=null,pushTimer=null,applyingRemote=false,lastCloudError=null;
 function esc(s){return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
 function toast(m){const t=document.getElementById("toast");t.textContent=m;t.classList.add("show");setTimeout(()=>t.classList.remove("show"),1700)}
 function isMissingTable(e){const s=((e&&e.message)||"")+((e&&e.code)||"");return (/app_state/.test(s)&&/exist|not.*find|relation|schema/i.test(s))||/PGRST205|42P01/.test(s)}
@@ -233,7 +233,7 @@ async function loadAndReconcile(){
     }catch(e){cloudErr=e}
     const lHas=local&&local.data&&Object.keys(local.data).length;
     const cHas=cloud&&cloud.data&&Object.keys(cloud.data).length;
-    if(cloudErr){ if(lHas){S=migrate(local.data);setSync(navigator.onLine?"error":"offline");toast("Using this device's copy — will sync when online.");return true} return false }
+    if(cloudErr){ lastCloudError=cloudErr; if(lHas){S=migrate(local.data);setSync(navigator.onLine?"error":"offline");toast("Using this device's copy — will sync when online.");return true} return false }
     if(!cHas&&!lHas){S=blankState();await cloudPush();writeLocal();return true}
     if(cHas&&!lHas){S=migrate(cloud.data);writeLocal(cloud.updatedAt);lastSynced=new Date();setSync("synced");return true}
     if(!cHas&&lHas){S=migrate(local.data);await cloudPush();return true}
@@ -241,7 +241,7 @@ async function loadAndReconcile(){
     if(cT>=lT){S=migrate(cloud.data);writeLocal(cloud.updatedAt);lastSynced=new Date();setSync("synced")}
     else{S=migrate(local.data);await cloudPush();toast("Synced this device's newer changes.")}
     return true;
-  }catch(e){setSync("error");return false}
+  }catch(e){lastCloudError=e;setSync("error");return false}
   finally{applyingRemote=false}
 }
 document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="hidden"){clearTimeout(pushTimer);cloudPush()}});
@@ -316,11 +316,16 @@ function showTableError(){
 function showRetry(){
   const g=document.getElementById("gate");g.style.display="flex";g.dataset.mode="retry";
   document.getElementById("appHeader").style.display="none";document.getElementById("appMain").style.display="none";
-  g.querySelector(".gatecard").style.maxWidth="380px";
+  const sql=tableSQL();
+  const detail=lastCloudError?(lastCloudError.message||lastCloudError.code||String(lastCloudError)):"";
+  g.querySelector(".gatecard").style.maxWidth="520px";
   g.querySelector(".gatecard").innerHTML=`
-    <div class="brand"><b>Lesson Timetabler</b></div>
-    <div class="sub">Couldn't reach the cloud and there's no copy on this device yet. Check your connection and try again — nothing has been changed.</div>
-    <div class="actions"><button id="rt_go" class="primary">Try again</button></div>`;
+    <div class="brand"><b>Almost there</b></div>
+    <div class="sub">Couldn't load your data. The usual cause is that the storage table hasn't been created yet. In Supabase → SQL Editor → New query, paste this, click Run, then Try again.</div>
+    <textarea readonly style="min-height:170px">${esc(sql)}</textarea>
+    <div class="actions" style="margin-top:10px"><button id="rt_copy">Copy SQL</button><button id="rt_go" class="primary">Try again</button></div>
+    ${detail?`<div class="foot">If you already ran it, the error was: ${esc(detail)}</div>`:""}`;
+  g.querySelector("#rt_copy").onclick=()=>navigator.clipboard.writeText(sql).then(()=>toast("Copied.")).catch(()=>toast("Select and copy manually."));
   g.querySelector("#rt_go").onclick=()=>{g.dataset.mode="";enterApp()};
 }
 function tableSQL(){return `create table if not exists public.app_state (
