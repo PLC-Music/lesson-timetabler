@@ -125,6 +125,11 @@
   .rslot.rx-year{background:#fbeaea;border-color:#e6b9b9}.rslot.rx-year .bn{color:#9a2b2b;font-weight:600}
   .rslot.rx-inherit{background:#f4eeee;border-color:#e0d2d2}.rslot.rx-inherit .bn{color:#b98a8a}
   .rslot.rx-student{background:#fde9d6;border-color:#f0cfa8}.rslot.rx-student .bn{color:#9a5312;font-weight:600}
+  .rslot.rx-teacher{background:#e9ebef;border-color:#d3d7de}.rslot.rx-teacher .bn{color:#5b6270;font-weight:600}
+  .rslot.rx-unavail{background:#eceef1;border-color:#d5d9e0}.rslot.rx-unavail .bn{color:#8a909c}
+  .calh.dayhead{cursor:pointer}.calh.dayhead:hover{background:#eef0f7;color:var(--primary)}
+  .unavailzone{position:absolute;left:0;right:0;background:repeating-linear-gradient(135deg,#eceef1,#eceef1 6px,#e2e5ea 6px,#e2e5ea 7px);border-top:1px solid #d5d9e0;border-bottom:1px solid #d5d9e0;pointer-events:none;z-index:1}
+  .unavailzone .uz{position:absolute;left:4px;top:2px;font-size:9px;color:#8a909c;text-transform:uppercase;letter-spacing:.03em}
   .rslot.rx-sel{box-shadow:inset 0 0 0 2px var(--primary)}
   .boedit{border:1px solid var(--line);border-radius:8px;padding:12px;margin-bottom:10px;background:#fff}
   .boedit input{margin-top:4px}
@@ -144,7 +149,7 @@
   .sd{display:flex;gap:18px}
   .sdleft{width:230px;flex:none}
   .sdright{flex:1;min-width:0}
-  .sdright .rcalwrap{max-height:52vh;overflow:auto;border:1px solid var(--line);border-radius:8px;padding:8px;background:#fbfbfc}
+  .rcalwrap{max-height:60vh;overflow:auto;border:1px solid var(--line);border-radius:8px;padding:8px;background:#fbfbfc}
   .legend{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
   @media(max-width:760px){.sd{flex-direction:column}.sdleft{width:auto}}
   .toast{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);background:var(--ink);color:#fff;padding:8px 14px;border-radius:8px;font-size:13px;opacity:0;transition:opacity .2s;pointer-events:none;z-index:200}
@@ -169,6 +174,7 @@
   <section class="left"><div class="panelbody" id="studentsPanel"></div></section>
   <section class="right">
     <div class="toolbar">
+      <button id="btnTeacher">My unavailable times</button>
       <span class="tip">Drag a student onto the calendar. Drop it exactly where you want; it snaps to 5-minute marks and to the end of the lesson above. Drop onto a lesson to make it a rotation.</span>
       <div class="grow"></div>
       <span id="conflictMsg" class="conflict"></span>
@@ -215,7 +221,7 @@ function migrate(d){
   const b=blankState();
   let blockouts;
   if(Array.isArray(d.blockouts)){
-    blockouts=d.blockouts.map(bo=>({id:bo.id||pid(),reason:bo.reason||"",years:(bo.years||[]).map(String),students:bo.students||[],cells:keepNew(bo.cells||[])})).filter(bo=>bo.cells.length);
+    blockouts=d.blockouts.map(bo=>({id:bo.id||pid(),reason:bo.reason||"",years:(bo.years||[]).map(String),students:bo.students||[],teacher:!!bo.teacher,cells:keepNew(bo.cells||[])})).filter(bo=>bo.cells.length);
   }else{
     blockouts=[];
     Object.keys(d.yearRestrictions||{}).forEach(y=>keepNew(d.yearRestrictions[y]).forEach(k=>blockouts.push({id:pid(),reason:"",years:[String(y)],students:[],cells:[k]})));
@@ -366,13 +372,13 @@ function studentById(id){return S.students.find(s=>s.id===id)}
 function periodById(id){return S.periods.find(p=>p.id===id)}
 function sortYears(a,b){const na=parseFloat(a),nb=parseFloat(b),aa=isNaN(na),bb=isNaN(nb);if(aa&&bb)return String(a).localeCompare(b);if(aa)return 1;if(bb)return -1;return na-nb}
 function yearColor(year){const ys=[...new Set(S.students.map(s=>String(s.year)))].sort(sortYears);const i=ys.indexOf(String(year));return ["#3f4ea3","#0f8a5f","#b45309","#8b2fb0","#0e7490","#a13d63","#556b2f","#9a3412"][(i<0?0:i)%8]}
-function blockedCellsFor(id){const st=studentById(id);const yr=String(st?st.year:"");const set=new Set();S.blockouts.forEach(b=>{if((b.students||[]).includes(id)||(b.years||[]).includes(yr))(b.cells||[]).forEach(c=>set.add(c))});return set}
+function blockedCellsFor(id){const st=studentById(id);const yr=String(st?st.year:"");const set=new Set();S.blockouts.forEach(b=>{if(b.teacher||(b.students||[]).includes(id)||(b.years||[]).includes(yr))(b.cells||[]).forEach(c=>set.add(c))});return set}
 function studentPlacements(id){return S.placements.filter(p=>p.studentIds.includes(id))}
 function toMin(t){const [h,m]=t.split(":").map(Number);return h*60+m}
 function minToStr(m){const h=Math.floor(m/60),mm=m%60;const hh=h>12?h-12:h;const ap=h>=12?"pm":"am";return hh+":"+String(mm).padStart(2,"0")+ap}
 function fmt12(t){let [h,m]=t.split(":").map(Number);const hh=h>12?h-12:h;return hh+":"+String(m).padStart(2,"0")}
 function dayBounds(){return {ds:Math.min(...S.periods.map(p=>toMin(p.start))),de:Math.max(...S.periods.map(p=>toMin(p.end)))}}
-const PXPM=1.9;
+const PXPM=1.0;
 
 /* ===== LEFT: students ===== */
 function renderStudents(){
@@ -432,6 +438,18 @@ function openAddDialog(){
   };
   render();d.showModal();
 }
+function openTeacherDialog(){
+  const d=ensureDlg();
+  d.innerHTML=`<div class="dlgbody">
+    <h3>My unavailable times</h3>
+    <div class="hint">Click a period to mark yourself unavailable (add a reason if you like). Click a day heading to block the whole day. No student can be scheduled during these times.</div>
+    <div id="t_cal"></div>
+    <div class="dlgfoot"><button id="t_done" class="primary">Done</button></div>
+  </div>`;
+  renderBlockoutPanel(d.querySelector("#t_cal"),{kind:"teacher"});
+  d.querySelector("#t_done").onclick=()=>d.close();
+  d.showModal();
+}
 function openYearDialog(year){
   const d=ensureDlg();
   d.innerHTML=`<div class="dlgbody">
@@ -472,7 +490,7 @@ function openStudentDialog(s){
   d.querySelector("#s_inst").addEventListener("blur",commit);
   d.querySelector("#s_year").addEventListener("blur",()=>{commit();drawCal()});
   durSel.addEventListener("change",commit);
-  d.querySelector("#s_del").onclick=()=>{if(!confirm("Delete "+s.name+"? Also removes them from the calendar."))return;S.students=S.students.filter(x=>x.id!==s.id);S.blockouts=S.blockouts.map(b=>({...b,students:(b.students||[]).filter(id=>id!==s.id)})).filter(b=>(b.students&&b.students.length)||(b.years&&b.years.length));S.placements=S.placements.map(p=>({...p,studentIds:p.studentIds.filter(id=>id!==s.id)})).filter(p=>p.studentIds.length);save();renderStudents();renderRight();d.close()};
+  d.querySelector("#s_del").onclick=()=>{if(!confirm("Delete "+s.name+"? Also removes them from the calendar."))return;S.students=S.students.filter(x=>x.id!==s.id);S.blockouts=S.blockouts.map(b=>({...b,students:(b.students||[]).filter(id=>id!==s.id)})).filter(b=>b.teacher||(b.students&&b.students.length)||(b.years&&b.years.length));S.placements=S.placements.map(p=>({...p,studentIds:p.studentIds.filter(id=>id!==s.id)})).filter(p=>p.studentIds.length);save();renderStudents();renderRight();d.close()};
   d.querySelector("#s_done").onclick=()=>{commit();d.close()};
   drawCal();d.showModal();
 }
@@ -501,9 +519,12 @@ function renderBlockoutPanel(host,ctx){
   let selectedId=null;
   const years=[...new Set(S.students.map(s=>String(s.year)).filter(Boolean))].sort(sortYears);
   const scopeYear=ctx.kind==="year"?String(ctx.year):(ctx.student?String(ctx.student.year||""):"");
-  function applies(b){ return ctx.kind==="year" ? (b.years||[]).includes(scopeYear) : ((b.students||[]).includes(ctx.student.id)||(b.years||[]).includes(scopeYear)); }
+  const isTeacher=ctx.kind==="teacher";
+  function applies(b){ if(isTeacher)return !!b.teacher; return ctx.kind==="year" ? (b.years||[]).includes(scopeYear) : ((b.students||[]).includes(ctx.student.id)||(b.years||[]).includes(scopeYear)); }
   function inherited(b){ return ctx.kind==="student" && !(b.students||[]).includes(ctx.student.id) && (b.years||[]).includes(scopeYear); }
+  function teacherAt(k){ return isTeacher?null:S.blockouts.find(b=>b.teacher&&(b.cells||[]).includes(k)); }
   function boAt(k){ return S.blockouts.find(b=>applies(b)&&(b.cells||[]).includes(k)); }
+  function newBlockout(cells){ return {id:pid(),reason:"",years:ctx.kind==="year"?[scopeYear]:[],students:ctx.kind==="student"?[ctx.student.id]:[],teacher:isTeacher,cells:cells.slice()}; }
   function onCell(k,bo){
     if(bo){
       if(inherited(bo)){ selectedId=bo.id; draw(); return; }
@@ -511,18 +532,34 @@ function renderBlockoutPanel(host,ctx){
       selectedId=bo.id; draw(); return;
     }
     const sel=S.blockouts.find(x=>x.id===selectedId);
-    if(sel&&!inherited(sel)){ sel.cells.push(k); save();draw();renderRight(); return; }
-    const nb={id:pid(),reason:"",years:ctx.kind==="year"?[scopeYear]:[],students:ctx.kind==="student"?[ctx.student.id]:[],cells:[k]};
-    S.blockouts.push(nb); selectedId=nb.id; save();draw();renderRight();
+    if(sel&&applies(sel)&&!inherited(sel)){ sel.cells.push(k); save();draw();renderRight(); return; }
+    const nb=newBlockout([k]); S.blockouts.push(nb); selectedId=nb.id; save();draw();renderRight();
+  }
+  function blockWholeDay(day){
+    const dayCells=S.periods.map(p=>cellKey(day,p.id));
+    const covering=S.blockouts.find(b=>applies(b)&&!inherited(b)&&dayCells.every(k=>(b.cells||[]).includes(k)));
+    if(covering){ covering.cells=covering.cells.filter(c=>!dayCells.includes(c)); if(!covering.cells.length)S.blockouts=S.blockouts.filter(x=>x.id!==covering.id); selectedId=null; save();draw();renderRight(); return; }
+    const nb=newBlockout(dayCells); S.blockouts.push(nb); selectedId=nb.id; save();draw();renderRight();
   }
   function renderCal(){
     const {cal,dayCols,ds}=calShell();
+    const heads=cal.querySelectorAll(".calhead .calh");
+    S.days.forEach((day,i)=>{const h=heads[i+1];if(h){h.classList.add("dayhead");h.title="Click to block or clear the whole day";h.onclick=()=>blockWholeDay(day)}});
     S.days.forEach(day=>S.periods.forEach(p=>{
       const k=cellKey(day,p.id);const b=bandEl(p,ds);b.classList.add("rslot");
-      const bo=boAt(k); let label=esc(p.name);
-      if(bo){ b.classList.add(inherited(bo)?"rx-inherit":((bo.students||[]).includes(ctx.student?ctx.student.id:"__none")&&ctx.kind==="student"?"rx-student":"rx-year")); if(bo.id===selectedId)b.classList.add("rx-sel"); if(bo.reason)label=esc(bo.reason); }
+      const tb=teacherAt(k);const bo=boAt(k);let label=esc(p.name);
+      if(bo){
+        b.classList.add(inherited(bo)?"rx-inherit":(isTeacher?"rx-teacher":((bo.students||[]).includes(ctx.student?ctx.student.id:"__none")&&ctx.kind==="student"?"rx-student":"rx-year")));
+        if(bo.id===selectedId)b.classList.add("rx-sel");
+        if(bo.reason)label=esc(bo.reason);
+        b.onclick=()=>onCell(k,bo);
+      }else if(tb){
+        b.classList.add("rx-unavail");label=tb.reason?esc(tb.reason):"Unavailable";
+        b.onclick=()=>toast("You're unavailable then — change it in “My unavailable times”.");
+      }else{
+        b.onclick=()=>onCell(k,null);
+      }
       b.innerHTML=`<div class="bn">${label}</div>`;
-      b.onclick=()=>onCell(k,bo);
       dayCols[day].append(b);
     }));
     return cal;
@@ -533,13 +570,16 @@ function renderBlockoutPanel(host,ctx){
     if(!b){selectedId=null;return ed;}
     const inh=inherited(b);
     const top=document.createElement("div");top.className="row";top.style.justifyContent="space-between";
-    top.innerHTML=`<strong>Blockout</strong>`;const x=document.createElement("button");x.className="ghost";x.textContent="Close";x.onclick=()=>{selectedId=null;draw()};top.append(x);ed.append(top);
+    top.innerHTML=`<strong>${isTeacher?"Unavailable time":"Blockout"}</strong>`;const x=document.createElement("button");x.className="ghost";x.textContent="Close";x.onclick=()=>{selectedId=null;draw()};top.append(x);ed.append(top);
     const rl=document.createElement("label");rl.textContent="Reason";rl.style.display="block";rl.style.marginTop="6px";
-    const ri=document.createElement("input");ri.value=b.reason||"";ri.placeholder="e.g. Whole-school assembly";ri.disabled=inh;
+    const ri=document.createElement("input");ri.value=b.reason||"";ri.placeholder=isTeacher?"e.g. Staff meeting":"e.g. Whole-school assembly";ri.disabled=inh;
     ri.addEventListener("input",()=>{b.reason=ri.value;save()});ri.addEventListener("blur",()=>{renderRight();draw()});
     ed.append(rl,ri);
     if(inh){
       const note=document.createElement("div");note.className="hint";note.style.marginTop="8px";note.textContent="Year-level block (Year "+(b.years||[]).slice().sort(sortYears).join(", ")+"). Edit it from the year heading.";ed.append(note);
+    }else if(isTeacher){
+      const note=document.createElement("div");note.className="hint";note.style.marginTop="8px";note.textContent="No one can be scheduled during this time — it applies to every student.";ed.append(note);
+      const del=document.createElement("button");del.className="danger";del.style.marginTop="8px";del.textContent="Delete";del.onclick=()=>{S.blockouts=S.blockouts.filter(x=>x.id!==b.id);selectedId=null;save();draw();renderRight()};ed.append(del);
     }else{
       const yl=document.createElement("div");yl.className="hint";yl.style.margin="8px 0 4px";yl.textContent="Applies to year levels:";
       const yr=document.createElement("div");yr.className="row";yr.style.flexWrap="wrap";
@@ -564,7 +604,7 @@ let dragPayload=null;
 function payloadDuration(){if(!dragPayload)return 30;if(dragPayload.type==="new"){const s=studentById(dragPayload.studentId);return s?(s.duration||30):30}const pl=S.placements.find(p=>p.id===dragPayload.placementId);return pl?pl.duration:30}
 function payloadStudents(){if(!dragPayload)return [];if(dragPayload.type==="new")return [dragPayload.studentId];const pl=S.placements.find(p=>p.id===dragPayload.placementId);return pl?pl.studentIds:[]}
 
-function blockedRangesForDay(day,studentIds){const out=[];S.blockouts.forEach(b=>{const applies=studentIds.some(id=>{const st=studentById(id);return (b.students||[]).includes(id)||(b.years||[]).includes(String(st?st.year:""))});if(!applies)return;(b.cells||[]).forEach(k=>{const c=parseCell(k);if(c.day===day){const p=periodById(c.periodId);if(p)out.push({s:toMin(p.start),e:toMin(p.end),reason:b.reason||""})}})});return out}
+function blockedRangesForDay(day,studentIds){const out=[];S.blockouts.forEach(b=>{const applies=b.teacher||studentIds.some(id=>{const st=studentById(id);return (b.students||[]).includes(id)||(b.years||[]).includes(String(st?st.year:""))});if(!applies)return;(b.cells||[]).forEach(k=>{const c=parseCell(k);if(c.day===day){const p=periodById(c.periodId);if(p)out.push({s:toMin(p.start),e:toMin(p.end),reason:b.reason||""})}})});return out}
 function overlapsBlocked(day,start,dur,studentIds){return blockedRangesForDay(day,studentIds).some(r=>start<r.e&&start+dur>r.s)}
 function findSlot(day,desired,duration,studentIds,excludeId){
   const {ds,de}=dayBounds();const occ=[];
@@ -586,6 +626,7 @@ function renderSchedule(){
   S.days.forEach(day=>{
     const col=dayCols[day];
     S.periods.forEach((p,i)=>{const z=document.createElement("div");z.className="pzone"+(i%2?" alt":"");z.style.top=((toMin(p.start)-ds)*PXPM)+"px";z.style.height=((toMin(p.end)-toMin(p.start))*PXPM)+"px";z.innerHTML=`<span class="pzn">${esc(p.name)}</span>`;col.append(z)});
+    S.blockouts.filter(b=>b.teacher).forEach(b=>b.cells.forEach(k=>{const c=parseCell(k);if(c.day!==day)return;const p=periodById(c.periodId);if(!p)return;const z=document.createElement("div");z.className="unavailzone";z.style.top=((toMin(p.start)-ds)*PXPM)+"px";z.style.height=((toMin(p.end)-toMin(p.start))*PXPM)+"px";if(b.reason)z.title=b.reason;z.innerHTML=`<span class="uz">${b.reason?esc(b.reason):"Unavailable"}</span>`;col.append(z)}));
     S.placements.filter(p=>p.day===day).forEach(pl=>col.append(renderLessonBlock(pl,ds)));
     col.addEventListener("dragover",e=>onColDragover(e,day,col,ds));
     col.addEventListener("drop",e=>onColDrop(e,day,col,ds));
@@ -665,6 +706,7 @@ function openLessonDialog(pl){
 }
 function renderConflicts(){const seen={};S.placements.forEach(p=>p.studentIds.forEach(id=>{seen[id]=(seen[id]||0)+1}));const dbl=Object.entries(seen).filter(([,n])=>n>1).map(([id])=>studentById(id)?.name).filter(Boolean);document.getElementById("conflictMsg").textContent=dbl.length?(dbl.length+" placed twice: "+dbl.join(", ")):""}
 document.getElementById("btnClearPlace").onclick=()=>{if(!S.placements.length)return;if(confirm("Remove all lessons from the calendar?")){S.placements=[];save();renderRight()}};
+document.getElementById("btnTeacher").onclick=openTeacherDialog;
 
 /* ===== boot ===== */
 function renderAll(){renderStudents();renderSchedule();renderConflicts()}
