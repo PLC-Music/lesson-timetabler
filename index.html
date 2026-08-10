@@ -63,6 +63,10 @@
   .studenthead .ct{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:650}
   .hint{font-size:12px;color:var(--muted);margin-bottom:10px}
   .ygroup .gl{font-size:11px;color:var(--muted);margin:10px 0 6px;font-weight:600}
+  .glbtn{display:flex;align-items:center;gap:8px;width:100%;text-align:left;border:none;background:transparent;cursor:pointer;padding:2px 0;text-transform:uppercase;letter-spacing:.06em}
+  .glbtn:hover{color:var(--primary)}
+  .glbtn .glx{font-size:9px;color:var(--primary);opacity:0;text-transform:none;letter-spacing:0;font-weight:500}
+  .glbtn:hover .glx{opacity:1}
   .stud{display:flex;align-items:center;gap:9px;padding:8px 9px;border:1px solid var(--line);border-radius:7px;margin-bottom:6px;background:#fff;cursor:grab}
   .stud:hover{border-color:#c2c8d4;background:#fcfcfd}
   .stud.placed{opacity:.55}
@@ -121,6 +125,10 @@
   .rslot.rx-year{background:#fbeaea;border-color:#e6b9b9}.rslot.rx-year .bn{color:#9a2b2b;font-weight:600}
   .rslot.rx-inherit{background:#f4eeee;border-color:#e0d2d2}.rslot.rx-inherit .bn{color:#b98a8a}
   .rslot.rx-student{background:#fde9d6;border-color:#f0cfa8}.rslot.rx-student .bn{color:#9a5312;font-weight:600}
+  .rslot.rx-sel{box-shadow:inset 0 0 0 2px var(--primary)}
+  .boedit{border:1px solid var(--line);border-radius:8px;padding:12px;margin-bottom:10px;background:#fff}
+  .boedit input{margin-top:4px}
+  .boedit label{font-size:12px;color:var(--muted)}
 
   dialog{border:1px solid var(--line);border-radius:12px;padding:0;box-shadow:var(--shadow);max-width:920px;width:94%}
   dialog::backdrop{background:rgba(20,25,35,.4)}
@@ -183,7 +191,10 @@ function saveConnCfg(c){localStorage.setItem(CFG_KEY,JSON.stringify(c))}
 
 /* ===== periods & state ===== */
 const SCHOOL_PERIODS=[
-  {id:"pcg",name:"PCG",start:"08:25",end:"08:55"},
+  {id:"b1",name:"Before 1",start:"07:00",end:"07:30"},
+  {id:"b2",name:"Before 2",start:"07:30",end:"08:00"},
+  {id:"b3",name:"Before 3",start:"08:00",end:"08:30"},
+  {id:"pcg",name:"PCG",start:"08:30",end:"08:55"},
   {id:"p1",name:"Period 1",start:"08:55",end:"09:40"},
   {id:"p2",name:"Period 2",start:"09:40",end:"10:25"},
   {id:"p3",name:"Period 3",start:"10:45",end:"11:30"},
@@ -198,15 +209,20 @@ function sid(){return "s"+Math.random().toString(36).slice(2,8)}
 function cellKey(day,periodId){return day+"|"+periodId}
 function parseCell(k){const [day,periodId]=k.split("|");return {day,periodId}}
 function periodsCopy(){return SCHOOL_PERIODS.map(p=>({...p}))}
-function blankState(){return {days:["Mon","Tue","Wed","Thu","Fri"],periods:periodsCopy(),students:[],yearRestrictions:{},studentRestrictions:{},placements:[]}}
+function blankState(){return {days:["Mon","Tue","Wed","Thu","Fri"],periods:periodsCopy(),students:[],blockouts:[],placements:[]}}
 function keepNew(arr){return (arr||[]).filter(k=>NEW_PID.has(parseCell(k).periodId))}
 function migrate(d){
   const b=blankState();
-  const yr={}; Object.keys(d.yearRestrictions||{}).forEach(y=>{const v=keepNew(d.yearRestrictions[y]);if(v.length)yr[y]=v});
-  const sr={}; Object.keys(d.studentRestrictions||{}).forEach(id=>{const v=keepNew(d.studentRestrictions[id]);if(v.length)sr[id]=v});
-  /* placements are now time-based {day,start,duration}; drop any old period-based ones */
+  let blockouts;
+  if(Array.isArray(d.blockouts)){
+    blockouts=d.blockouts.map(bo=>({id:bo.id||pid(),reason:bo.reason||"",years:(bo.years||[]).map(String),students:bo.students||[],cells:keepNew(bo.cells||[])})).filter(bo=>bo.cells.length);
+  }else{
+    blockouts=[];
+    Object.keys(d.yearRestrictions||{}).forEach(y=>keepNew(d.yearRestrictions[y]).forEach(k=>blockouts.push({id:pid(),reason:"",years:[String(y)],students:[],cells:[k]})));
+    Object.keys(d.studentRestrictions||{}).forEach(id=>keepNew(d.studentRestrictions[id]).forEach(k=>blockouts.push({id:pid(),reason:"",years:[],students:[id],cells:[k]})));
+  }
   const placements=(d.placements||[]).filter(p=>typeof p.start==="number"&&typeof p.duration==="number"&&p.day);
-  return {days:(d.days&&d.days.length)?d.days:b.days,periods:periodsCopy(),students:d.students||[],yearRestrictions:yr,studentRestrictions:sr,placements};
+  return {days:(d.days&&d.days.length)?d.days:b.days,periods:periodsCopy(),students:d.students||[],blockouts,placements};
 }
 let S=blankState();
 
@@ -350,7 +366,7 @@ function studentById(id){return S.students.find(s=>s.id===id)}
 function periodById(id){return S.periods.find(p=>p.id===id)}
 function sortYears(a,b){const na=parseFloat(a),nb=parseFloat(b),aa=isNaN(na),bb=isNaN(nb);if(aa&&bb)return String(a).localeCompare(b);if(aa)return 1;if(bb)return -1;return na-nb}
 function yearColor(year){const ys=[...new Set(S.students.map(s=>String(s.year)))].sort(sortYears);const i=ys.indexOf(String(year));return ["#3f4ea3","#0f8a5f","#b45309","#8b2fb0","#0e7490","#a13d63","#556b2f","#9a3412"][(i<0?0:i)%8]}
-function blockedCellsFor(id){const st=studentById(id);if(!st)return new Set();const s=new Set(S.yearRestrictions[String(st.year)]||[]);(S.studentRestrictions[id]||[]).forEach(k=>s.add(k));return s}
+function blockedCellsFor(id){const st=studentById(id);const yr=String(st?st.year:"");const set=new Set();S.blockouts.forEach(b=>{if((b.students||[]).includes(id)||(b.years||[]).includes(yr))(b.cells||[]).forEach(c=>set.add(c))});return set}
 function studentPlacements(id){return S.placements.filter(p=>p.studentIds.includes(id))}
 function toMin(t){const [h,m]=t.split(":").map(Number);return h*60+m}
 function minToStr(m){const h=Math.floor(m/60),mm=m%60;const hh=h>12?h-12:h;const ap=h>=12?"pm":"am";return hh+":"+String(mm).padStart(2,"0")+ap}
@@ -370,7 +386,7 @@ function renderStudents(){
   const byYear={};S.students.forEach(s=>{(byYear[s.year||"—"]=byYear[s.year||"—"]||[]).push(s)});
   Object.keys(byYear).sort(sortYears).forEach(y=>{
     const g=document.createElement("div");g.className="ygroup";
-    g.append(Object.assign(document.createElement("div"),{className:"gl",textContent:"Year "+y}));
+    const gl=document.createElement("button");gl.type="button";gl.className="gl glbtn";gl.innerHTML=`Year ${esc(y)} <span class="glx">block times</span>`;gl.onclick=()=>openYearDialog(y);g.append(gl);
     byYear[y].sort((a,b)=>a.name.localeCompare(b.name)).forEach(s=>{
       const row=document.createElement("div");row.className="stud"+(studentPlacements(s.id).length?" placed":"");row.draggable=true;
       row.innerHTML=`<span class="grip">⋮⋮</span><span class="dot" style="background:${yearColor(s.year)}"></span><span class="meta"><span class="nm">${esc(s.name)}</span><span class="sub">${esc(s.instrument||"—")} · ${s.duration}min</span></span>`;
@@ -403,18 +419,30 @@ function openAddDialog(){
       const grab=()=>({name:pane.querySelector("#a_name").value.trim(),instrument:pane.querySelector("#a_inst").value.trim(),year:pane.querySelector("#a_year").value.trim(),duration:parseInt(pane.querySelector("#a_dur").value)||30});
       const commit=g=>{if(!g.name){toast("Name is required.");return false}S.students.push({id:sid(),...g});return true};
       pane.querySelector("#a_cancel").onclick=()=>d.close();
-      pane.querySelector("#a_more").onclick=()=>{if(commit(grab())){save();renderStudents();render();d.querySelector("#a_name").focus()}};
-      pane.querySelector("#a_done").onclick=()=>{if(commit(grab())){save();renderStudents();d.close()}};
+      pane.querySelector("#a_more").onclick=()=>{if(commit(grab())){save();renderRight();render();d.querySelector("#a_name").focus()}};
+      pane.querySelector("#a_done").onclick=()=>{if(commit(grab())){save();renderRight();d.close()}};
       pane.querySelector("#a_name").focus();
     }else{
       pane.innerHTML=`<div class="hint">One per line: <code>Name, Instrument, Year, Duration</code>. Duration optional (defaults to 30).</div>
         <textarea id="a_bulk" placeholder="Ava Chen, Violin, 7, 30&#10;Noah Patel, Trumpet, 9"></textarea>
         <div class="dlgfoot"><button id="a_cancel2">Cancel</button><button id="a_addall" class="primary">Add all</button></div>`;
       pane.querySelector("#a_cancel2").onclick=()=>d.close();
-      pane.querySelector("#a_addall").onclick=()=>{let n=0;pane.querySelector("#a_bulk").value.split("\n").map(l=>l.trim()).filter(Boolean).forEach(line=>{const p=line.split(",").map(x=>x.trim());if(!p[0])return;S.students.push({id:sid(),name:p[0],instrument:p[1]||"",year:p[2]||"",duration:parseInt(p[3])||30});n++});if(n){save();renderStudents();d.close();toast(n+" added")}else toast("Nothing to add.")};
+      pane.querySelector("#a_addall").onclick=()=>{let n=0;pane.querySelector("#a_bulk").value.split("\n").map(l=>l.trim()).filter(Boolean).forEach(line=>{const p=line.split(",").map(x=>x.trim());if(!p[0])return;S.students.push({id:sid(),name:p[0],instrument:p[1]||"",year:p[2]||"",duration:parseInt(p[3])||30});n++});if(n){save();renderRight();d.close();toast(n+" added")}else toast("Nothing to add.")};
     }
   };
   render();d.showModal();
+}
+function openYearDialog(year){
+  const d=ensureDlg();
+  d.innerHTML=`<div class="dlgbody">
+    <h3>Year ${esc(year)} — blockouts</h3>
+    <div class="hint">Click a period to block it, then type a reason and tick which year levels it covers. Click a blocked period to edit or delete it. One blockout can span several periods and several years.</div>
+    <div id="y_cal"></div>
+    <div class="dlgfoot"><button id="y_done" class="primary">Done</button></div>
+  </div>`;
+  renderBlockoutPanel(d.querySelector("#y_cal"),{kind:"year",year:String(year)});
+  d.querySelector("#y_done").onclick=()=>d.close();
+  d.showModal();
 }
 
 /* student dialog: details + restriction calendar (period-based) */
@@ -426,25 +454,26 @@ function openStudentDialog(s){
       <div class="sdleft"><div class="stack">
         <div class="fld2"><label>Name</label><input id="s_name" value="${esc(s.name)}"></div>
         <div class="fld2"><label>Instrument</label><input id="s_inst" value="${esc(s.instrument||"")}"></div>
-        <div class="fldrow"><div class="fld2"><label>Year</label><input id="s_year" value="${esc(s.year||"")}"></div><div class="fld2"><label>Length (min)</label><input id="s_dur" type="number" value="${s.duration||30}"></div></div>
-        <button id="s_save" class="primary">Save details</button>
+        <div class="fldrow"><div class="fld2"><label>Year</label><input id="s_year" value="${esc(s.year||"")}"></div><div class="fld2"><label>Length</label><select id="s_dur"></select></div></div>
         <button id="s_del" class="danger">Delete student</button>
       </div></div>
       <div class="sdright">
-        <div class="modes" style="max-width:340px"><button data-sc="student" class="on">This student</button><button data-sc="year">Whole Year ${esc(s.year||"—")}</button></div>
-        <div class="hint">Click a period to block it (a class this student must not be pulled from).</div>
-        <div class="rcalwrap" id="s_cal"></div>
-        <div class="legend"><span class="pill" style="background:#fde9d6;color:#9a5312">Student block</span><span class="pill" style="background:#fbeaea;color:#9a2b2b">Year block</span><span class="pill" style="background:#f4eeee;color:#b98a8a">Inherited from year</span></div>
+        <div class="hint">Click a period to block it just for this student, then add a reason. Year-wide blocks show shaded — edit those from the year heading.</div>
+        <div id="s_cal"></div>
       </div>
     </div>
     <div class="dlgfoot"><button id="s_done" class="primary">Done</button></div>
   </div>`;
   const cal=d.querySelector("#s_cal");
-  const drawCal=()=>renderRestrictCal(cal,s,scope);
-  d.querySelectorAll(".modes button").forEach(b=>b.onclick=()=>{scope=b.dataset.sc;d.querySelectorAll(".modes button").forEach(x=>x.classList.toggle("on",x===b));drawCal()});
-  d.querySelector("#s_save").onclick=()=>{const nm=d.querySelector("#s_name").value.trim();if(!nm){toast("Name is required.");return}s.name=nm;s.instrument=d.querySelector("#s_inst").value.trim();s.year=d.querySelector("#s_year").value.trim();s.duration=parseInt(d.querySelector("#s_dur").value)||30;save();renderStudents();renderRight();d.querySelector("h3").textContent=s.name;d.querySelector('[data-sc="year"]').textContent="Whole Year "+(s.year||"—");drawCal();toast("Saved.")};
-  d.querySelector("#s_del").onclick=()=>{if(!confirm("Delete "+s.name+"? Also removes them from the calendar."))return;S.students=S.students.filter(x=>x.id!==s.id);delete S.studentRestrictions[s.id];S.placements=S.placements.map(p=>({...p,studentIds:p.studentIds.filter(id=>id!==s.id)})).filter(p=>p.studentIds.length);save();renderStudents();renderRight();d.close()};
-  d.querySelector("#s_done").onclick=()=>d.close();
+  const drawCal=()=>renderBlockoutPanel(cal,{kind:"student",student:s});
+  const durSel=d.querySelector("#s_dur");{const opts=[20,30,45,60];if(!opts.includes(s.duration||30))opts.push(s.duration);opts.sort((a,b)=>a-b).forEach(v=>durSel.append(new Option(v+" min",v)));durSel.value=s.duration||30;}
+  const commit=()=>{const nm=d.querySelector("#s_name").value.trim();if(nm)s.name=nm;s.instrument=d.querySelector("#s_inst").value.trim();s.year=d.querySelector("#s_year").value.trim();s.duration=parseInt(durSel.value)||30;save();renderRight();d.querySelector("h3").textContent=s.name;};
+  d.querySelector("#s_name").addEventListener("blur",commit);
+  d.querySelector("#s_inst").addEventListener("blur",commit);
+  d.querySelector("#s_year").addEventListener("blur",()=>{commit();drawCal()});
+  durSel.addEventListener("change",commit);
+  d.querySelector("#s_del").onclick=()=>{if(!confirm("Delete "+s.name+"? Also removes them from the calendar."))return;S.students=S.students.filter(x=>x.id!==s.id);S.blockouts=S.blockouts.map(b=>({...b,students:(b.students||[]).filter(id=>id!==s.id)})).filter(b=>(b.students&&b.students.length)||(b.years&&b.years.length));S.placements=S.placements.map(p=>({...p,studentIds:p.studentIds.filter(id=>id!==s.id)})).filter(p=>p.studentIds.length);save();renderStudents();renderRight();d.close()};
+  d.querySelector("#s_done").onclick=()=>{commit();d.close()};
   drawCal();d.showModal();
 }
 
@@ -467,28 +496,75 @@ function calShell(){
 }
 function bandEl(p,ds){const b=document.createElement("div");b.className="band";b.style.top=((toMin(p.start)-ds)*PXPM)+"px";b.style.height=((toMin(p.end)-toMin(p.start))*PXPM)+"px";return b}
 
-/* restriction calendar */
-function renderRestrictCal(host,student,scope){
-  host.innerHTML="";
-  const {cal,dayCols,ds}=calShell();
-  const isYear=scope==="year";const yk=String(student.year||"");
-  const yearSet=new Set(S.yearRestrictions[yk]||[]);const stuSet=new Set(S.studentRestrictions[student.id]||[]);
-  S.days.forEach(day=>S.periods.forEach(p=>{
-    const k=cellKey(day,p.id);const b=bandEl(p,ds);b.classList.add("rslot");b.innerHTML=`<div class="bn">${esc(p.name)}</div>`;
-    if(isYear){if(yearSet.has(k))b.classList.add("rx-year");b.onclick=()=>{toggle(S.yearRestrictions,yk,k);save();renderRestrictCal(host,student,scope);renderRight()};}
-    else{if(yearSet.has(k))b.classList.add("rx-inherit");else if(stuSet.has(k))b.classList.add("rx-student");b.onclick=()=>{if(yearSet.has(k)){toast("Blocked for the whole year.");return}toggle(S.studentRestrictions,student.id,k);save();renderRestrictCal(host,student,scope);renderRight()};}
-    dayCols[day].append(b);
-  }));
-  host.append(cal);
+/* blockout panel: reasons + multi-year, used by year and student dialogs */
+function renderBlockoutPanel(host,ctx){
+  let selectedId=null;
+  const years=[...new Set(S.students.map(s=>String(s.year)).filter(Boolean))].sort(sortYears);
+  const scopeYear=ctx.kind==="year"?String(ctx.year):(ctx.student?String(ctx.student.year||""):"");
+  function applies(b){ return ctx.kind==="year" ? (b.years||[]).includes(scopeYear) : ((b.students||[]).includes(ctx.student.id)||(b.years||[]).includes(scopeYear)); }
+  function inherited(b){ return ctx.kind==="student" && !(b.students||[]).includes(ctx.student.id) && (b.years||[]).includes(scopeYear); }
+  function boAt(k){ return S.blockouts.find(b=>applies(b)&&(b.cells||[]).includes(k)); }
+  function onCell(k,bo){
+    if(bo){
+      if(inherited(bo)){ selectedId=bo.id; draw(); return; }
+      if(bo.id===selectedId){ bo.cells=bo.cells.filter(c=>c!==k); if(!bo.cells.length){S.blockouts=S.blockouts.filter(x=>x.id!==bo.id);selectedId=null;} save();draw();renderRight(); return; }
+      selectedId=bo.id; draw(); return;
+    }
+    const sel=S.blockouts.find(x=>x.id===selectedId);
+    if(sel&&!inherited(sel)){ sel.cells.push(k); save();draw();renderRight(); return; }
+    const nb={id:pid(),reason:"",years:ctx.kind==="year"?[scopeYear]:[],students:ctx.kind==="student"?[ctx.student.id]:[],cells:[k]};
+    S.blockouts.push(nb); selectedId=nb.id; save();draw();renderRight();
+  }
+  function renderCal(){
+    const {cal,dayCols,ds}=calShell();
+    S.days.forEach(day=>S.periods.forEach(p=>{
+      const k=cellKey(day,p.id);const b=bandEl(p,ds);b.classList.add("rslot");
+      const bo=boAt(k); let label=esc(p.name);
+      if(bo){ b.classList.add(inherited(bo)?"rx-inherit":((bo.students||[]).includes(ctx.student?ctx.student.id:"__none")&&ctx.kind==="student"?"rx-student":"rx-year")); if(bo.id===selectedId)b.classList.add("rx-sel"); if(bo.reason)label=esc(bo.reason); }
+      b.innerHTML=`<div class="bn">${label}</div>`;
+      b.onclick=()=>onCell(k,bo);
+      dayCols[day].append(b);
+    }));
+    return cal;
+  }
+  function renderEditor(){
+    const b=S.blockouts.find(x=>x.id===selectedId);
+    const ed=document.createElement("div");ed.className="boedit";
+    if(!b){selectedId=null;return ed;}
+    const inh=inherited(b);
+    const top=document.createElement("div");top.className="row";top.style.justifyContent="space-between";
+    top.innerHTML=`<strong>Blockout</strong>`;const x=document.createElement("button");x.className="ghost";x.textContent="Close";x.onclick=()=>{selectedId=null;draw()};top.append(x);ed.append(top);
+    const rl=document.createElement("label");rl.textContent="Reason";rl.style.display="block";rl.style.marginTop="6px";
+    const ri=document.createElement("input");ri.value=b.reason||"";ri.placeholder="e.g. Whole-school assembly";ri.disabled=inh;
+    ri.addEventListener("input",()=>{b.reason=ri.value;save()});ri.addEventListener("blur",()=>{renderRight();draw()});
+    ed.append(rl,ri);
+    if(inh){
+      const note=document.createElement("div");note.className="hint";note.style.marginTop="8px";note.textContent="Year-level block (Year "+(b.years||[]).slice().sort(sortYears).join(", ")+"). Edit it from the year heading.";ed.append(note);
+    }else{
+      const yl=document.createElement("div");yl.className="hint";yl.style.margin="8px 0 4px";yl.textContent="Applies to year levels:";
+      const yr=document.createElement("div");yr.className="row";yr.style.flexWrap="wrap";
+      years.forEach(y=>{const lab=document.createElement("label");lab.style.cssText="display:flex;gap:4px;align-items:center;font-size:12px";const cb=document.createElement("input");cb.type="checkbox";cb.style.width="auto";cb.checked=(b.years||[]).includes(y);cb.onchange=()=>{b.years=b.years||[];if(cb.checked){if(!b.years.includes(y))b.years.push(y)}else b.years=b.years.filter(v=>v!==y);save();draw();renderRight()};lab.append(cb,document.createTextNode("Yr "+y));yr.append(lab)});
+      ed.append(yl,yr);
+      const parts=[];if((b.years||[]).length)parts.push("Years "+b.years.slice().sort(sortYears).join(", "));if((b.students||[]).length)parts.push(b.students.length+" student"+(b.students.length>1?"s":""));
+      const sum=document.createElement("div");sum.className="hint";sum.style.marginTop="6px";sum.textContent="Applies to: "+(parts.join(" · ")||"nobody yet");ed.append(sum);
+      const del=document.createElement("button");del.className="danger";del.style.marginTop="8px";del.textContent="Delete blockout";del.onclick=()=>{S.blockouts=S.blockouts.filter(x=>x.id!==b.id);selectedId=null;save();draw();renderRight()};ed.append(del);
+    }
+    return ed;
+  }
+  function draw(){
+    host.innerHTML="";
+    if(selectedId)host.append(renderEditor());
+    const wrap=document.createElement("div");wrap.className="rcalwrap";wrap.append(renderCal());host.append(wrap);
+  }
+  draw();
 }
-function toggle(store,key,cell){const a=store[key]||(store[key]=[]);const i=a.indexOf(cell);if(i<0)a.push(cell);else a.splice(i,1)}
 
 /* ===== RIGHT: time-based schedule ===== */
 let dragPayload=null;
 function payloadDuration(){if(!dragPayload)return 30;if(dragPayload.type==="new"){const s=studentById(dragPayload.studentId);return s?(s.duration||30):30}const pl=S.placements.find(p=>p.id===dragPayload.placementId);return pl?pl.duration:30}
 function payloadStudents(){if(!dragPayload)return [];if(dragPayload.type==="new")return [dragPayload.studentId];const pl=S.placements.find(p=>p.id===dragPayload.placementId);return pl?pl.studentIds:[]}
 
-function blockedRangesForDay(day,studentIds){const out=[];studentIds.forEach(id=>blockedCellsFor(id).forEach(k=>{const c=parseCell(k);if(c.day===day){const p=periodById(c.periodId);if(p)out.push({s:toMin(p.start),e:toMin(p.end)})}}));return out}
+function blockedRangesForDay(day,studentIds){const out=[];S.blockouts.forEach(b=>{const applies=studentIds.some(id=>{const st=studentById(id);return (b.students||[]).includes(id)||(b.years||[]).includes(String(st?st.year:""))});if(!applies)return;(b.cells||[]).forEach(k=>{const c=parseCell(k);if(c.day===day){const p=periodById(c.periodId);if(p)out.push({s:toMin(p.start),e:toMin(p.end),reason:b.reason||""})}})});return out}
 function overlapsBlocked(day,start,dur,studentIds){return blockedRangesForDay(day,studentIds).some(r=>start<r.e&&start+dur>r.s)}
 function findSlot(day,desired,duration,studentIds,excludeId){
   const {ds,de}=dayBounds();const occ=[];
@@ -536,7 +612,7 @@ function paintBlocked(){
   const {ds}=dayBounds();const sids=payloadStudents();
   document.querySelectorAll("#schedWrap .calday").forEach(col=>{
     const day=col.dataset.day;
-    blockedRangesForDay(day,sids).forEach(r=>{const z=document.createElement("div");z.className="blockzone";z.style.top=((r.s-ds)*PXPM)+"px";z.style.height=((r.e-r.s)*PXPM)+"px";col.append(z)});
+    blockedRangesForDay(day,sids).forEach(r=>{const z=document.createElement("div");z.className="blockzone";z.style.top=((r.s-ds)*PXPM)+"px";z.style.height=((r.e-r.s)*PXPM)+"px";if(r.reason)z.title=r.reason;col.append(z)});
   });
 }
 function onColDragover(e,day,col,ds){
