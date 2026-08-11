@@ -76,6 +76,16 @@
   .stud .meta .nm{font-weight:600}
   .stud .meta .sub{color:var(--muted);font-size:12px;margin-left:7px}
 
+  .lesson.grouped{border-left:4px solid var(--gc,#3f4ea3)}
+  .lesson.sel{outline:2px solid var(--primary);outline-offset:-2px;box-shadow:0 0 0 2px var(--primary-soft)}
+  .lesson .warn{display:inline-flex;align-items:center;justify-content:center;width:13px;height:13px;border-radius:50%;background:var(--danger);color:#fff;font-size:9px;font-weight:700;margin-left:3px}
+  .warn{color:var(--danger);font-weight:700}
+  .stud.tight{border-left:3px solid var(--danger)}
+  .yrow{display:flex;flex-wrap:wrap;gap:5px;align-items:center;margin:0 0 10px}
+  .yrow .yl{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
+  .ychip{padding:3px 8px;font-size:12px;border-radius:999px}
+  .selbar{display:flex;align-items:center;gap:8px}
+  .selbar #selCount{font-size:12px;color:var(--muted)}
   .toolbar{display:flex;align-items:center;gap:10px;padding:8px 12px;border-bottom:1px solid var(--line);background:var(--panel);flex-wrap:wrap}
   .toolbar .grow{flex:1}
   .toolbar .tip{font-size:12px;color:var(--muted)}
@@ -177,11 +187,9 @@
   <section class="left"><div class="panelbody" id="studentsPanel"></div></section>
   <section class="right">
     <div class="toolbar">
-      <button id="btnAuto" class="primary">Auto-schedule</button>
-      <label class="gs">Group size <input id="grpSize" type="number" value="5" min="1" max="12"></label>
-      <label class="gs">Week <select id="weekSel"></select></label>
       <button id="btnTeacher">My unavailable times</button>
-      <span class="tip">Or drag a name to place a lesson by hand.</span>
+      <span id="selBar" class="selbar" hidden><span id="selCount"></span><button id="btnCombine" class="primary">Combine into rotation</button><button id="btnUngroup" class="ghost" hidden>Ungroup</button><button id="btnSelClear" class="ghost">Clear</button></span>
+      <span class="tip">Drag a name to place a lesson. ⌘/Ctrl-click lessons to select, then combine into a rotation.</span>
       <div class="grow"></div>
       <span id="conflictMsg" class="conflict"></span>
       <button id="btnClearPlace" class="ghost">Clear all</button>
@@ -235,9 +243,8 @@ function migrate(d){
     Object.keys(d.yearRestrictions||{}).forEach(y=>keepNew(d.yearRestrictions[y]).forEach(k=>blockouts.push({id:pid(),reason:"",years:[String(y)],students:[],cells:[k]})));
     Object.keys(d.studentRestrictions||{}).forEach(id=>keepNew(d.studentRestrictions[id]).forEach(k=>blockouts.push({id:pid(),reason:"",years:[],students:[id],cells:[k]})));
   }
-  const placements=(d.placements||[]).filter(p=>typeof p.start==="number"&&typeof p.duration==="number"&&p.day);
-  const groups=(Array.isArray(d.groups)?d.groups:[]).filter(g=>g&&Array.isArray(g.slots)&&g.slots.length&&Array.isArray(g.studentIds)&&g.studentIds.length).map(g=>({id:g.id||pid(),studentIds:g.studentIds.slice(),slots:g.slots.map(s=>({day:s.day,start:s.start,duration:s.duration}))}));
-  return {days:(d.days&&d.days.length)?d.days:b.days,periods:periodsCopy(),students:d.students||[],blockouts,placements,groups};
+  const placements=(d.placements||[]).filter(p=>typeof p.start==="number"&&typeof p.duration==="number"&&p.day).map(p=>({id:p.id||pid(),day:p.day,start:p.start,duration:p.duration,studentId:p.studentId||(Array.isArray(p.studentIds)?p.studentIds[0]:null),groupId:p.groupId||null})).filter(p=>p.studentId);
+  return {days:(d.days&&d.days.length)?d.days:b.days,periods:periodsCopy(),students:d.students||[],blockouts,placements,groups:[]};
 }
 let S=blankState();
 
@@ -382,7 +389,7 @@ function periodById(id){return S.periods.find(p=>p.id===id)}
 function sortYears(a,b){const na=parseFloat(a),nb=parseFloat(b),aa=isNaN(na),bb=isNaN(nb);if(aa&&bb)return String(a).localeCompare(b);if(aa)return 1;if(bb)return -1;return na-nb}
 function yearColor(year){const ys=[...new Set(S.students.map(s=>String(s.year)))].sort(sortYears);const i=ys.indexOf(String(year));return ["#3f4ea3","#0f8a5f","#b45309","#8b2fb0","#0e7490","#a13d63","#556b2f","#9a3412"][(i<0?0:i)%8]}
 function blockedCellsFor(id){const st=studentById(id);const yr=String(st?st.year:"");const set=new Set();S.blockouts.forEach(b=>{if(b.teacher||(b.students||[]).includes(id)||(b.years||[]).includes(yr))(b.cells||[]).forEach(c=>set.add(c))});return set}
-function studentPlacements(id){return S.placements.filter(p=>p.studentIds.includes(id))}
+function studentPlacements(id){return S.placements.filter(p=>p.studentId===id)}
 function toMin(t){const [h,m]=t.split(":").map(Number);return h*60+m}
 function minToStr(m){const h=Math.floor(m/60),mm=m%60;const hh=h>12?h-12:h;const ap=h>=12?"pm":"am";return hh+":"+String(mm).padStart(2,"0")+ap}
 function fmt12(t){let [h,m]=t.split(":").map(Number);const hh=h>12?h-12:h;return hh+":"+String(m).padStart(2,"0")}
@@ -392,25 +399,29 @@ const PXPM=1.0;
 /* ===== LEFT: students ===== */
 function renderStudents(){
   const el=document.getElementById("studentsPanel");el.innerHTML="";
+  const pool=S.students.filter(s=>!isScheduled(s.id));
   const head=document.createElement("div");head.className="studenthead";
-  head.innerHTML=`<span class="ct">Students (${S.students.length})</span>`;
+  head.innerHTML=`<span class="ct">To schedule (${pool.length})</span>`;
   const add=document.createElement("button");add.className="primary";add.textContent="+ Add students";add.onclick=openAddDialog;
   head.append(add);el.append(head);
-  el.append(Object.assign(document.createElement("div"),{className:"hint",textContent:"Drag a name onto the calendar to schedule. Click a name to edit details and block their times."}));
+  const years=[...new Set(S.students.map(s=>String(s.year)).filter(Boolean))].sort(sortYears);
+  if(years.length){
+    const yr=document.createElement("div");yr.className="yrow";
+    yr.append(Object.assign(document.createElement("span"),{className:"yl",textContent:"Year blocks:"}));
+    years.forEach(y=>{const b=document.createElement("button");b.className="ychip";b.textContent="Yr "+y;b.onclick=()=>openYearDialog(y);yr.append(b)});
+    el.append(yr);
+  }
+  el.append(Object.assign(document.createElement("div"),{className:"hint",textContent:"Hardest to place first. Drag onto the calendar; click a placed lesson to edit."}));
   if(!S.students.length){el.append(Object.assign(document.createElement("div"),{className:"empty",textContent:"No students yet. Use “Add students”."}));return}
-  const byYear={};S.students.forEach(s=>{(byYear[s.year||"—"]=byYear[s.year||"—"]||[]).push(s)});
-  Object.keys(byYear).sort(sortYears).forEach(y=>{
-    const g=document.createElement("div");g.className="ygroup";
-    const gl=document.createElement("button");gl.type="button";gl.className="gl glbtn";gl.innerHTML=`Year ${esc(y)} <span class="glx">block times</span>`;gl.onclick=()=>openYearDialog(y);g.append(gl);
-    byYear[y].sort((a,b)=>a.name.localeCompare(b.name)).forEach(s=>{
-      const row=document.createElement("div");row.className="stud"+(studentPlacements(s.id).length?" placed":"");row.draggable=true;
-      row.innerHTML=`<span class="grip">⋮⋮</span><span class="dot" style="background:${yearColor(s.year)}"></span><span class="meta"><span class="nm">${esc(s.name)}</span><span class="sub">${esc(s.instrument||"—")} · ${s.duration}min</span></span>`;
-      row.addEventListener("dragstart",e=>{dragPayload={type:"new",studentId:s.id};e.dataTransfer.effectAllowed="move";e.dataTransfer.setData("text/plain",s.id);paintBlocked()});
-      row.addEventListener("dragend",()=>{dragPayload=null;clearOverlays()});
-      row.addEventListener("click",()=>openStudentDialog(s));
-      g.append(row);
-    });
-    el.append(g);
+  if(!pool.length){el.append(Object.assign(document.createElement("div"),{className:"empty",textContent:"Everyone is scheduled. Click a lesson to edit."}));return}
+  pool.slice().sort((a,b)=>feasCount(a)-feasCount(b)||a.name.localeCompare(b.name)).forEach(s=>{
+    const fc=feasCount(s);
+    const row=document.createElement("div");row.className="stud"+(fc<=3?" tight":"");row.draggable=true;
+    row.innerHTML=`<span class="grip">⋮⋮</span><span class="dot" style="background:${yearColor(s.year)}"></span><span class="meta"><span class="nm">${esc(s.name)}</span><span class="sub">Yr ${esc(s.year||"—")} · ${esc(s.instrument||"—")} · ${s.duration}min</span></span>`;
+    row.addEventListener("dragstart",e=>{dragPayload={type:"new",studentId:s.id};e.dataTransfer.effectAllowed="move";e.dataTransfer.setData("text/plain",s.id);paintBlocked()});
+    row.addEventListener("dragend",()=>{dragPayload=null;clearOverlays()});
+    row.addEventListener("click",()=>openStudentDialog(s));
+    el.append(row);
   });
 }
 
@@ -473,8 +484,9 @@ function openYearDialog(year){
 }
 
 /* student dialog: details + restriction calendar (period-based) */
-function openStudentDialog(s){
-  const d=ensureDlg();let scope="student";
+function openStudentDialog(s,placement){
+  const d=ensureDlg();
+  const sched=(placement||studentPlacements(s.id)[0])||null;
   d.innerHTML=`<div class="dlgbody">
     <h3>${esc(s.name)}</h3>
     <div class="sd">
@@ -482,6 +494,7 @@ function openStudentDialog(s){
         <div class="fld2"><label>Name</label><input id="s_name" value="${esc(s.name)}"></div>
         <div class="fld2"><label>Instrument</label><input id="s_inst" value="${esc(s.instrument||"")}"></div>
         <div class="fldrow"><div class="fld2"><label>Year</label><input id="s_year" value="${esc(s.year||"")}"></div><div class="fld2"><label>Length</label><select id="s_dur"></select></div></div>
+        <div id="s_sched"></div>
         <button id="s_del" class="danger">Delete student</button>
       </div></div>
       <div class="sdright">
@@ -494,12 +507,22 @@ function openStudentDialog(s){
   const cal=d.querySelector("#s_cal");
   const drawCal=()=>renderBlockoutPanel(cal,{kind:"student",student:s});
   const durSel=d.querySelector("#s_dur");{const opts=[20,30,45,60];if(!opts.includes(s.duration||30))opts.push(s.duration);opts.sort((a,b)=>a-b).forEach(v=>durSel.append(new Option(v+" min",v)));durSel.value=s.duration||30;}
+  const schedBox=d.querySelector("#s_sched");
+  if(sched){
+    const warn=placementHasWarning(sched);
+    schedBox.innerHTML=`<div class="hint" style="margin:2px 0">Scheduled: ${esc(sched.day)} ${minToStr(sched.start)}${sched.groupId?" · in a rotation":""}${warn?' <span class="warn">!</span> clashes with another rotation slot':""}</div>`;
+    const rrow=document.createElement("div");rrow.className="row";
+    const un=document.createElement("button");un.textContent="Remove from schedule";un.onclick=()=>{S.placements=S.placements.filter(p=>p.id!==sched.id);save();renderRight();d.close()};
+    rrow.append(un);
+    if(sched.groupId){const ug=document.createElement("button");ug.className="ghost";ug.textContent="Remove from rotation";ug.onclick=()=>{sched.groupId=null;save();renderRight();d.close()};rrow.append(ug)}
+    schedBox.append(rrow);
+  }
   const commit=()=>{const nm=d.querySelector("#s_name").value.trim();if(nm)s.name=nm;s.instrument=d.querySelector("#s_inst").value.trim();s.year=d.querySelector("#s_year").value.trim();s.duration=parseInt(durSel.value)||30;save();renderRight();d.querySelector("h3").textContent=s.name;};
   d.querySelector("#s_name").addEventListener("blur",commit);
   d.querySelector("#s_inst").addEventListener("blur",commit);
   d.querySelector("#s_year").addEventListener("blur",()=>{commit();drawCal()});
   durSel.addEventListener("change",commit);
-  d.querySelector("#s_del").onclick=()=>{if(!confirm("Delete "+s.name+"? Also removes them from the calendar."))return;S.students=S.students.filter(x=>x.id!==s.id);S.blockouts=S.blockouts.map(b=>({...b,students:(b.students||[]).filter(id=>id!==s.id)})).filter(b=>b.teacher||(b.students&&b.students.length)||(b.years&&b.years.length));S.placements=S.placements.map(p=>({...p,studentIds:p.studentIds.filter(id=>id!==s.id)})).filter(p=>p.studentIds.length);save();renderStudents();renderRight();d.close()};
+  d.querySelector("#s_del").onclick=()=>{if(!confirm("Delete "+s.name+"? Also removes them from the calendar."))return;S.students=S.students.filter(x=>x.id!==s.id);S.blockouts=S.blockouts.map(b=>({...b,students:(b.students||[]).filter(id=>id!==s.id)})).filter(b=>b.teacher||(b.students&&b.students.length)||(b.years&&b.years.length));S.placements=S.placements.filter(p=>p.studentId!==s.id);save();renderStudents();renderRight();d.close()};
   d.querySelector("#s_done").onclick=()=>{commit();d.close()};
   drawCal();d.showModal();
 }
@@ -611,7 +634,7 @@ function renderBlockoutPanel(host,ctx){
 /* ===== RIGHT: time-based schedule ===== */
 let dragPayload=null;
 function payloadDuration(){if(!dragPayload)return 30;if(dragPayload.type==="new"){const s=studentById(dragPayload.studentId);return s?(s.duration||30):30}const pl=S.placements.find(p=>p.id===dragPayload.placementId);return pl?pl.duration:30}
-function payloadStudents(){if(!dragPayload)return [];if(dragPayload.type==="new")return [dragPayload.studentId];const pl=S.placements.find(p=>p.id===dragPayload.placementId);return pl?pl.studentIds:[]}
+function payloadStudents(){if(!dragPayload)return [];if(dragPayload.type==="new")return [dragPayload.studentId];const pl=S.placements.find(p=>p.id===dragPayload.placementId);return pl?[pl.studentId]:[]}
 
 function blockedRangesForDay(day,studentIds){const out=[];S.blockouts.forEach(b=>{const applies=b.teacher||studentIds.some(id=>{const st=studentById(id);return (b.students||[]).includes(id)||(b.years||[]).includes(String(st?st.year:""))});if(!applies)return;(b.cells||[]).forEach(k=>{const c=parseCell(k);if(c.day===day){const p=periodById(c.periodId);if(p)out.push({s:toMin(p.start),e:toMin(p.end),reason:b.reason||""})}})});return out}
 function overlapsBlocked(day,start,dur,studentIds){return blockedRangesForDay(day,studentIds).some(r=>start<r.e&&start+dur>r.s)}
@@ -627,71 +650,43 @@ function findSlot(day,desired,duration,studentIds,excludeId){
 }
 function placementOnAt(day,t){return S.placements.find(p=>p.day===day&&t>=p.start&&t<p.start+p.duration)}
 
-/* ===== auto-scheduler ===== */
-let lastUnplaceable=[];
+/* ===== rotation grouping (manual) + constraint helpers ===== */
 const GROUP_COLORS=["#3f4ea3","#0f8a5f","#b45309","#8b2fb0","#0e7490","#a13d63","#556b2f","#9a3412","#1d4ed8","#047857"];
-function groupColor(gid){const i=S.groups.findIndex(g=>g.id===gid);return GROUP_COLORS[(i<0?0:i)%GROUP_COLORS.length]}
+function groupIds(){return [...new Set(S.placements.map(p=>p.groupId).filter(Boolean))]}
+function groupColor(gid){const i=groupIds().indexOf(gid);return GROUP_COLORS[(i<0?0:i)%GROUP_COLORS.length]}
+function groupPlacements(gid){return S.placements.filter(p=>p.groupId===gid)}
 function studentFreeAt(st,day,start){const dur=st.duration||30;const {ds,de}=dayBounds();if(start<ds||start+dur>de)return false;return !overlapsBlocked(day,start,dur,[st.id])}
 function feasCount(st){const {ds,de}=dayBounds();const dur=st.duration||30;let n=0;S.days.forEach(day=>{for(let t=ds;t+dur<=de;t+=5)if(studentFreeAt(st,day,t))n++});return n}
-function autoSchedule(groupSize){
-  const {ds,de}=dayBounds();
-  const order=S.students.slice().sort((a,b)=>feasCount(a)-feasCount(b)||((b.duration||30)-(a.duration||30)));
-  const placed=[];const unplaceable=[];
-  for(const st of order){
-    const dur=st.duration||30;let done=false;
-    for(const day of S.days){
-      for(let t=ds;t+dur<=de;t+=5){
-        if(!studentFreeAt(st,day,t))continue;
-        if(placed.some(p=>p.day===day&&t<p.start+p.dur&&t+dur>p.start))continue;
-        placed.push({st,day,start:t,dur});done=true;break;
-      }
-      if(done)break;
-    }
-    if(!done)unplaceable.push(st);
-  }
-  const compat=(a,b)=>studentFreeAt(a.st,b.day,b.start)&&studentFreeAt(b.st,a.day,a.start);
-  const buckets={};placed.forEach(p=>{(buckets[p.dur]=buckets[p.dur]||[]).push(p)});
-  const groups=[];
-  Object.keys(buckets).forEach(dur=>{
-    let pool=buckets[dur].slice();
-    while(pool.length){
-      const seed=pool.shift();const group=[seed];
-      for(let i=0;i<pool.length&&group.length<Math.max(1,groupSize);){
-        const cand=pool[i];
-        if(group.every(m=>compat(m,cand))){group.push(cand);pool.splice(i,1);}else i++;
-      }
-      groups.push(group);
-    }
-  });
-  S.groups=groups.map(g=>({id:pid(),studentIds:g.map(x=>x.st.id),slots:g.map(x=>({day:x.day,start:x.start,duration:x.dur}))}));
-  S.placements=[];
-  lastUnplaceable=unplaceable.map(s=>s.id);
-  save();renderWeekSelect();renderRight();
-  if(unplaceable.length)toast("Scheduled. "+unplaceable.length+" couldn't be placed — see the note.");
-  else toast("Scheduled "+placed.length+" students into "+S.groups.length+" group"+(S.groups.length===1?"":"s")+".");
+function isScheduled(id){return S.placements.some(p=>p.studentId===id)}
+
+let selected=new Set();
+function toggleSelect(pid){if(selected.has(pid))selected.delete(pid);else selected.add(pid);updateSelBar();renderSchedule()}
+function clearSelection(){selected.clear();updateSelBar();renderSchedule()}
+function updateSelBar(){
+  const bar=document.getElementById("selBar");if(!bar)return;
+  const n=selected.size;bar.hidden=n===0;
+  const sc=document.getElementById("selCount");if(sc)sc.textContent=n+" selected";
+  const cb=document.getElementById("btnCombine");if(cb)cb.disabled=n<2;
+  const gids=[...new Set([...selected].map(pid=>{const p=S.placements.find(x=>x.id===pid);return p?p.groupId:null}).filter(Boolean))];
+  const ub=document.getElementById("btnUngroup");if(ub)ub.hidden=gids.length===0;
 }
-function currentWeek(){const sel=document.getElementById("weekSel");return sel?parseInt(sel.value||"1"):1}
-function renderWeekSelect(){const sel=document.getElementById("weekSel");if(!sel)return;const cur=sel.value||"1";const mx=Math.max(1,...S.groups.map(g=>g.slots.length),1);sel.innerHTML="";for(let i=1;i<=Math.min(mx,12);i++)sel.append(new Option("Week "+i,i));sel.value=Math.min(parseInt(cur)||1,mx)}
-function renderGroupSlot(g,slot,st,ds,N){
-  const div=document.createElement("div");div.className="lesson gslot";
-  div.style.top=((slot.start-ds)*PXPM)+"px";div.style.height=(slot.duration*PXPM)+"px";div.style.setProperty("--gc",groupColor(g.id));
-  if(st)div.innerHTML=`<span class="who"><span class="dot" style="background:${yearColor(st.year)}"></span>${esc(st.name)}</span><span class="sub">${esc(st.instrument||"")} · ${minToStr(slot.start)}${N>1?" · ⟳"+N:""}</span>`;
-  else div.innerHTML=`<span class="sub">${minToStr(slot.start)}</span>`;
-  div.title=N>1?"Rotation group — click to view":"Click to view";
-  div.onclick=()=>openGroupDialog(g);
-  return div;
+function combineSelected(){
+  const ids=[...selected];if(ids.length<2)return;
+  const gid=pid();S.placements.forEach(p=>{if(ids.includes(p.id))p.groupId=gid});
+  selected.clear();save();updateSelBar();renderRight();
+  const w=groupWarnings(gid);
+  if(w.length)toast("Grouped — heads up: "+w.length+" clash"+(w.length>1?"es":"")+" (see the red marks).");
+  else toast("Rotation group created.");
 }
-function openGroupDialog(g){
-  const d=ensureDlg();const N=g.slots.length;
-  d.innerHTML=`<div class="dlgbody" style="max-width:460px"><h3>${N>1?"Rotation group · "+N+" students":"Lesson"}</h3>
-    ${N>1?`<div class="hint">These ${N} students rotate through ${N} time slots — each week everyone moves to the next slot, so no one is stuck always missing the same class.</div>`:""}
-    <div class="stack" id="gm"></div>
-    <div class="dlgfoot"><button id="g_del" class="danger">Delete group</button><span style="flex:1"></span><button id="g_close" class="primary">Done</button></div></div>`;
-  const list=d.querySelector("#gm");
-  g.slots.forEach((slot,j)=>{const st=studentById(g.studentIds[j]);const r=document.createElement("div");r.className="row";r.innerHTML=`<span class="dot" style="width:8px;height:8px;border-radius:2px;background:${st?yearColor(st.year):"#ccc"}"></span><span style="flex:1">${st?esc(st.name):"—"} <span class="muted">${esc(st&&st.instrument||"")}</span></span><span class="muted">${esc(slot.day)} ${minToStr(slot.start)}</span>`;const rm=document.createElement("button");rm.textContent="Remove";rm.className="danger";rm.onclick=()=>{g.studentIds.splice(j,1);g.slots.splice(j,1);if(!g.studentIds.length)S.groups=S.groups.filter(x=>x.id!==g.id);save();d.close();renderRight()};r.append(rm);list.append(r)});
-  d.querySelector("#g_del").onclick=()=>{S.groups=S.groups.filter(x=>x.id!==g.id);save();d.close();renderRight()};
-  d.querySelector("#g_close").onclick=()=>d.close();
-  d.showModal();
+function ungroupSelected(){const ids=[...selected];S.placements.forEach(p=>{if(ids.includes(p.id))p.groupId=null});selected.clear();save();updateSelBar();renderRight()}
+function groupWarnings(gid){
+  const pls=groupPlacements(gid);const out=[];
+  pls.forEach(p=>{const st=studentById(p.studentId);if(!st)return;pls.forEach(o=>{if(overlapsBlocked(o.day,o.start,o.duration,[st.id]))out.push({student:st,day:o.day,start:o.start})})});
+  return out;
+}
+function placementHasWarning(pl){
+  if(!pl.groupId)return false;const st=studentById(pl.studentId);if(!st)return false;
+  return groupPlacements(pl.groupId).some(o=>overlapsBlocked(o.day,o.start,o.duration,[st.id]));
 }
 
 function renderRight(){renderSchedule();renderConflicts();renderStudents()}
@@ -699,12 +694,10 @@ function renderSchedule(){
   const host=document.getElementById("schedWrap");host.innerHTML="";
   if(!S.students.length){host.innerHTML=`<div class="empty">Add students, then drag them onto the calendar.</div>`;return}
   const {cal,dayCols,ds}=calShell();
-  const week=currentWeek();
   S.days.forEach(day=>{
     const col=dayCols[day];
     S.periods.forEach((p,i)=>{const z=document.createElement("div");z.className="pzone"+(i%2?" alt":"");z.style.top=((toMin(p.start)-ds)*PXPM)+"px";z.style.height=((toMin(p.end)-toMin(p.start))*PXPM)+"px";z.innerHTML=`<span class="pzn">${esc(p.name)}</span>`;col.append(z)});
     S.blockouts.filter(b=>b.teacher).forEach(b=>b.cells.forEach(k=>{const c=parseCell(k);if(c.day!==day)return;const p=periodById(c.periodId);if(!p)return;const z=document.createElement("div");z.className="unavailzone";z.style.top=((toMin(p.start)-ds)*PXPM)+"px";z.style.height=((toMin(p.end)-toMin(p.start))*PXPM)+"px";if(b.reason)z.title=b.reason;z.innerHTML=`<span class="uz">${b.reason?esc(b.reason):"Unavailable"}</span>`;col.append(z)}));
-    S.groups.forEach(g=>{const N=g.slots.length;g.slots.forEach((slot,j)=>{if(slot.day!==day)return;const occ=studentById(g.studentIds[(j+(week-1))%N]);col.append(renderGroupSlot(g,slot,occ,ds,N))})});
     S.placements.filter(p=>p.day===day).forEach(pl=>col.append(renderLessonBlock(pl,ds)));
     col.addEventListener("dragover",e=>onColDragover(e,day,col,ds));
     col.addEventListener("drop",e=>onColDrop(e,day,col,ds));
@@ -713,16 +706,18 @@ function renderSchedule(){
   if(dragPayload)paintBlocked();
 }
 function renderLessonBlock(pl,ds){
-  const rotating=pl.studentIds.length>1;const div=document.createElement("div");div.className="lesson"+(rotating?" rotating":"");
+  const st=studentById(pl.studentId);
+  const div=document.createElement("div");div.className="lesson"+(pl.groupId?" grouped":"")+(selected.has(pl.id)?" sel":"");
   div.style.top=((pl.start-ds)*PXPM)+"px";div.style.height=(pl.duration*PXPM)+"px";div.dataset.pid=pl.id;div.draggable=true;
-  const names=pl.studentIds.map(id=>studentById(id)).filter(Boolean);
+  if(pl.groupId)div.style.setProperty("--gc",groupColor(pl.groupId));
   const timelbl=`${minToStr(pl.start)}–${minToStr(pl.start+pl.duration)}`;
-  if(!rotating){const s=names[0];div.innerHTML=`<span class="who"><span class="dot" style="background:${yearColor(s.year)}"></span>${esc(s.name)}</span><span class="sub">${esc(s.instrument||"")} · ${timelbl}</span>`;}
-  else{div.innerHTML=`<span class="rot">⟳ Rotation ×${names.length}</span><span class="sub">${esc(names.map(s=>s.name.split(" ")[0]).join(" / "))}</span><span class="time">${timelbl}</span>`;}
-  div.title="Drag to move · click to edit";
+  const warn=placementHasWarning(pl)?`<span class="warn" title="This student is blocked during another slot in this rotation">!</span>`:"";
+  if(st)div.innerHTML=`<span class="who"><span class="dot" style="background:${yearColor(st.year)}"></span>${esc(st.name)}${warn}</span><span class="sub">${esc(st.instrument||"")} · ${timelbl}${pl.groupId?" · ⟳":""}</span>`;
+  else div.innerHTML=`<span class="sub">${timelbl}</span>`;
+  div.title="Click to edit · ⌘/Ctrl-click to select · drag to move";
   div.addEventListener("dragstart",e=>{dragPayload={type:"move",placementId:pl.id};e.dataTransfer.effectAllowed="move";e.dataTransfer.setData("text/plain",pl.id);e.stopPropagation();paintBlocked()});
   div.addEventListener("dragend",()=>{dragPayload=null;clearOverlays()});
-  div.addEventListener("click",e=>{e.stopPropagation();openLessonDialog(pl)});
+  div.addEventListener("click",e=>{e.stopPropagation();if(e.metaKey||e.ctrlKey){toggleSelect(pl.id);return}if(st)openStudentDialog(st,pl)});
   return div;
 }
 function yToTime(col,clientY,ds){const r=col.getBoundingClientRect();return ds+(clientY-r.top)/PXPM}
@@ -736,10 +731,8 @@ function paintBlocked(){
 }
 function onColDragover(e,day,col,ds){
   if(!dragPayload)return;e.preventDefault();e.dataTransfer.dropEffect="move";
-  document.querySelectorAll(".lesson.mergeTarget").forEach(n=>n.classList.remove("mergeTarget"));
   const dur=payloadDuration();const sids=payloadStudents();const excl=dragPayload.type==="move"?dragPayload.placementId:null;
   const desired=yToTime(col,e.clientY,ds);const snapped=Math.round(desired/5)*5;
-  if(dragPayload.type==="new"){const hit=placementOnAt(day,snapped);if(hit){hidePreview();const el=col.querySelector('.lesson[data-pid="'+hit.id+'"]');if(el)el.classList.add("mergeTarget");return}}
   const slot=findSlot(day,desired,dur,sids,excl);
   const top=(slot==null?snapped:slot);
   showPreview(col,slot==null,((top-ds)*PXPM),(dur*PXPM),slot==null?"no room":minToStr(slot));
@@ -754,53 +747,30 @@ function showPreview(col,bad,top,height,label){
 }
 function hidePreview(){if(_preview&&_preview.parentNode)_preview.parentNode.removeChild(_preview);}
 function onColDrop(e,day,col,ds){
-  e.preventDefault();if(!dragPayload)return;
-  const desired=yToTime(col,e.clientY,ds);const snapped=Math.round(desired/5)*5;
+  e.preventDefault();if(!dragPayload){clearOverlays();return}
+  const desired=yToTime(col,e.clientY,ds);
   if(dragPayload.type==="new"){
     const s=studentById(dragPayload.studentId);if(!s){clearOverlays();return}const dur=s.duration||30;
-    const hit=placementOnAt(day,snapped);
-    if(hit){
-      if(hit.studentIds.includes(s.id))toast("Already in this slot.");
-      else if(overlapsBlocked(day,hit.start,Math.max(hit.duration,dur),[s.id]))toast("That time is blocked for "+s.name+".");
-      else{hit.studentIds.push(s.id);hit.rotating=hit.studentIds.length>1;hit.duration=Math.max(hit.duration,dur);save();renderRight();}
-      clearOverlays();return;
-    }
     const slot=findSlot(day,desired,dur,[s.id]);
-    if(slot==null){toast("No free time that day.");clearOverlays();return}
-    S.placements.push({id:pid(),day,start:slot,duration:dur,studentIds:[s.id],rotating:false});save();renderRight();
+    if(slot==null){toast("No free time there.");clearOverlays();return}
+    S.placements.push({id:pid(),day,start:slot,duration:dur,studentId:s.id,groupId:null});save();renderRight();
   }else{
     const pl=S.placements.find(x=>x.id===dragPayload.placementId);if(!pl){clearOverlays();return}
-    const slot=findSlot(day,desired,pl.duration,pl.studentIds,pl.id);
+    const slot=findSlot(day,desired,pl.duration,[pl.studentId],pl.id);
     if(slot==null){toast("No room there.");clearOverlays();return}
     pl.day=day;pl.start=slot;save();renderRight();
   }
   clearOverlays();
 }
-function openLessonDialog(pl){
-  const d=ensureDlg();const names=pl.studentIds.map(id=>studentById(id)).filter(Boolean);
-  d.innerHTML=`<div class="dlgbody" style="max-width:440px"><h3>${esc(pl.day)} · ${minToStr(pl.start)}–${minToStr(pl.start+pl.duration)}</h3>
-    <div class="stack" id="ll"></div>
-    <div class="dlgfoot"><button id="ll_del" class="danger">Remove slot</button><span style="flex:1"></span><button id="ll_close" class="primary">Done</button></div></div>`;
-  const list=d.querySelector("#ll");
-  if(names.length>1)list.append(Object.assign(document.createElement("div"),{className:"hint",textContent:"Rotation — these students take turns in this slot week to week."}));
-  names.forEach(s=>{const r=document.createElement("div");r.className="row";r.innerHTML=`<span class="dot" style="width:8px;height:8px;border-radius:2px;background:${yearColor(s.year)}"></span><span style="flex:1">${esc(s.name)} <span class="muted">(${esc(s.instrument||"—")})</span></span>`;const rm=document.createElement("button");rm.textContent="Remove";rm.className="danger";rm.onclick=()=>{pl.studentIds=pl.studentIds.filter(id=>id!==s.id);if(!pl.studentIds.length)S.placements=S.placements.filter(x=>x.id!==pl.id);else pl.rotating=pl.studentIds.length>1;save();d.close();renderRight()};r.append(rm);list.append(r)});
-  d.querySelector("#ll_del").onclick=()=>{S.placements=S.placements.filter(x=>x.id!==pl.id);save();d.close();renderRight()};
-  d.querySelector("#ll_close").onclick=()=>d.close();
-  d.showModal();
-}
-function renderConflicts(){const msgs=[];const seen={};S.placements.forEach(p=>p.studentIds.forEach(id=>{seen[id]=(seen[id]||0)+1}));const dbl=Object.entries(seen).filter(([,n])=>n>1).map(([id])=>studentById(id)?.name).filter(Boolean);if(dbl.length)msgs.push(dbl.length+" placed twice");const un=lastUnplaceable.map(id=>studentById(id)).filter(Boolean);if(un.length)msgs.push("couldn't place: "+un.map(s=>s.name).join(", "));document.getElementById("conflictMsg").textContent=msgs.join(" · ")}
-document.getElementById("btnClearPlace").onclick=()=>{if(!S.placements.length&&!S.groups.length)return;if(confirm("Clear the whole schedule (lessons and rotation groups)?")){S.placements=[];S.groups=[];lastUnplaceable=[];save();renderRight()}};
+function renderConflicts(){const msgs=[];const seen={};S.placements.forEach(p=>{seen[p.studentId]=(seen[p.studentId]||0)+1});const dbl=Object.entries(seen).filter(([,n])=>n>1).map(([id])=>studentById(id)?.name).filter(Boolean);if(dbl.length)msgs.push(dbl.length+" placed twice: "+dbl.join(", "));const warned=new Set();groupIds().forEach(gid=>groupWarnings(gid).forEach(w=>warned.add(w.student.name)));if(warned.size)msgs.push(warned.size+" rotation clash"+(warned.size>1?"es":"")+": "+[...warned].join(", "));document.getElementById("conflictMsg").textContent=msgs.join(" · ")}
+document.getElementById("btnClearPlace").onclick=()=>{if(!S.placements.length)return;if(confirm("Clear all placed lessons?")){S.placements=[];selected.clear();save();renderRight()}};
 document.getElementById("btnTeacher").onclick=openTeacherDialog;
-document.getElementById("btnAuto").onclick=()=>{
-  if(!S.students.length){toast("Add students first.");return}
-  const size=Math.max(1,parseInt(document.getElementById("grpSize").value)||5);
-  if(!confirm("Build a fresh schedule for all "+S.students.length+" students in groups of up to "+size+"? This replaces the current calendar."))return;
-  autoSchedule(size);
-};
-document.getElementById("weekSel").addEventListener("change",renderSchedule);
+document.getElementById("btnCombine").onclick=combineSelected;
+document.getElementById("btnUngroup").onclick=ungroupSelected;
+document.getElementById("btnSelClear").onclick=clearSelection;
 
 /* ===== boot ===== */
-function renderAll(){renderWeekSelect();renderStudents();renderSchedule();renderConflicts()}
+function renderAll(){renderStudents();renderSchedule();renderConflicts()}
 boot();
 </script>
 </body>
